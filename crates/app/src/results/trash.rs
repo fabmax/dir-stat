@@ -66,6 +66,7 @@ pub enum Modal {
     Refuse { title: String, message: String },
 }
 
+const SHARED_SPACE: &str = "Some files are shared with other folders (hard links or clones); this may free less than shown.";
 const TRASH_WORD: &str = if cfg!(windows) {
     "Recycle Bin"
 } else {
@@ -320,7 +321,7 @@ pub fn plan(
     };
     let shared_space = linked || rule.is_some_and(|r| r.shares_space);
     if shared_space {
-        warnings.push("Some files are shared with other folders (hard links or clones); this may free less than shown.".into());
+        warnings.push(SHARED_SPACE.into());
     }
     let root_total = tree.node(NodeId::ROOT).total().alloc;
     if root_total > 0 && alloc.saturating_mul(4) > root_total {
@@ -352,7 +353,9 @@ pub fn plan(
             why: Why::Catalog,
         })
         && matches!(removal, Removal::Item | Removal::Contents)
-        && warnings.is_empty();
+        // Shared space only lowers what is freed; it doesn't make the item riskier (user
+        // decision 2026-11-13: Cargo hard-links its build output, so nearly every target has it).
+        && warnings.iter().all(|w| w == SHARED_SPACE);
 
     let mode = match (removal, target) {
         (Removal::Contents, TrashTarget::Dir(id)) => Mode::Contents {

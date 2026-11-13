@@ -1603,12 +1603,12 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
 - `results/candidates.rs`: git job scheduling on the tick, status map, `GitState` → `display_section`.
 - `safety.rs` (canonical guards, `protected_ids`, live checks), `trash/*` (`execute` with G6–G9, `Trasher`, `SystemTrasher`, Linux rename-only trash), `results/trash.rs` (plan, dialog with warnings and default-button logic, modal keys, pending rows, `TrashJob` values with `tree_gen`, struck-through "In Trash" rows, post-trash re-order, toasts, zoom-out-if-trashed, `~/.Trash` outdated flag).
 - *Accept:* the `safety`, `trash` and `trash plan` tests; the app-level trash tests (§10.3); the manual checklist §10.4 item 6; ancestors' sizes drop immediately after success and the struck-through row leaves at the next re-order even after the scan has completed; a failure restores the row with a sticky toast; on `~/dev`, the dialog for a git-tracked build folder (CAT §5.1) shows no catalog reason and defaults to Cancel, and a candidate whose git check is still pending defaults to Cancel; screenshots of the dialog (Safe, Low, Review) via `DIRSTAT_SCRIPT`.
-- *Done 2026-11-13, except the real-Trash checks (smoke test, manual item 6), which wait for the user's OK.* Notes:
+- *Done 2026-11-13.* Real-Trash checks run with the user's OK: the smoke test passed; manual item 6 on a `/Users/Shared` fixture with a mounted disk image: a Safe target trashed with Return (once under 25% of the scan), a Low and a Review item trashed with Tab + Space after Return cancelled, a folder holding another volume refused, a folder swapped for a symlink after the scan failed with "changed since the scan". Notes:
   - `TrashJob` carries `scan_root` (G2 runs again in `execute`). `tree_gen` is the full scan's id.
   - The dialog shows the catalog reason once: Low/Review warning lines read "Restored only by re-downloading or rebuilding." / "May contain data you want." without repeating it.
   - Contents-mode targets get the title "Move the contents of “X” to the Trash?".
   - Large-file identities assume a regular file (the tree doesn't store the kind of kept files).
-  - **Open question for the user:** Cargo hard-links its build artifacts, so nearly every `target` gets the "shared with other folders" warning and therefore Cancel as the default button.
+  - **User decision (2026-11-13):** the "shared with other folders" line stays in the dialog but no longer makes Cancel the default (Cargo hard-links its build output, so nearly every `target` had it).
   - Still open from M1: `subtract_contents` doesn't flag the target's large files as trashed.
 
 **M9 — Cleanup pane**

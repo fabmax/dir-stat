@@ -120,6 +120,21 @@ fn the_default_button_is_trash_only_for_clean_safe_matches() {
 }
 
 #[test]
+fn shared_space_alone_keeps_the_trash_default() {
+    // Cargo hard-links its artifacts: the note is shown, the default stays Move to Trash.
+    let cargo = results_with(
+        dir("target")
+            .verdict(target("cargo-target"))
+            .linked_file(40_000)
+            .small_files(1, 10_000),
+    );
+    let p = plan_for(&cargo, "proj/target", GitState::NotInRepo).unwrap();
+    assert_eq!(p.warnings, [SHARED_SPACE]);
+    assert!(p.default_is_trash);
+    assert!(p.shared_space, "the toast says \"up to\"");
+}
+
+#[test]
 fn warning_lines_and_their_triggers() {
     let risky = results_with(
         dir("target")
