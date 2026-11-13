@@ -1950,6 +1950,20 @@ static PROTECTED: &[Rule] = &[
     )
     .why("Your mail and message history."),
     Rule::protect(
+        "node-global-packages",
+        "Installed Node.js packages",
+        Os::UNIX,
+        Scope::NoHeuristics,
+        // `<prefix>/lib/node_modules` of a Node.js install (npm's global layout). A project
+        // folder named `lib` has its own package.json and keeps its node_modules rule.
+        &[Under(
+            "lib",
+            Is("node_modules"),
+            &[Cond::NONE.no_sib(m::PACKAGE_JSON)],
+        )],
+    )
+    .why("Packages of a Node.js install, such as its bundled npm."),
+    Rule::protect(
         "media-libraries",
         "Photos / Music library",
         Os::MAC,

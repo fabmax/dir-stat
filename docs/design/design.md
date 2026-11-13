@@ -1539,7 +1539,7 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
   - Every listing is classified, including unreadable and vanished folders, so `context_for` reproduces every node's verdict. The UI decides what to do with an unreadable candidate.
   - `catalog::warnings(risk, display, reason, repo)` holds the dialog warning text of §5.3, pinned by tests.
   - `git::plan_jobs` groups candidates by work tree and `git::worktree_of` finds the work tree from stored markers; the scheduling (one job per tick) stays in the app.
-  - **Open catalog issue:** npm's bundled `node_modules` inside Node.js distributions (`…/lib/node_modules/npm/node_modules`, next to npm's own `package.json`) match `node-modules` and are suggested under Review first. Deleting them breaks that npm. Needs a rule fix (e.g. a Protect zone for global `lib/node_modules` prefixes); not changed in M3.
+  - **Catalog fix (user-approved, 2026-11-13):** npm's bundled `node_modules` inside Node.js distributions (`…/lib/node_modules/npm/node_modules`) matched `node-modules`. New Protect rule `node-global-packages` (Unix, NoHeuristics): `node_modules` directly under a folder named `lib` that has no `package.json`. `%APPDATA%`, `~/.nvm`, `~/.npm-global` and `/opt/homebrew` were already covered by existing zones. A Windows Node.js zip (`node-v*-win-x64/node_modules`) is still uncovered.
 
 **M4 — App shell, start screen, live scan wiring**
 - `App`/`Env`/`Screen`/`Message` skeleton; `App::boot` vs `App::new`; `PrefsStore`.

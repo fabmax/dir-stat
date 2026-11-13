@@ -161,6 +161,27 @@ fn cargo_targets_are_safe_and_node_modules_review_first() {
 }
 
 #[test]
+fn node_installs_keep_their_bundled_packages() {
+    let (_dir, root) = fixture();
+    // A Node.js distribution: npm ships its own node_modules next to its package.json.
+    let dist = root.join("tools/node-v24.13.0-darwin-arm64/lib/node_modules");
+    put(&dist.join("npm/package.json"), b"{}");
+    put(&dist.join("npm/node_modules/abbrev/package.json"), b"{}");
+    put(&dist.join("corepack/package.json"), b"{}");
+    // A project folder named `lib` is still a project.
+    put(&root.join("app/lib/package.json"), b"{}");
+    put(&root.join("app/lib/node_modules/m/index.js"), b"");
+
+    let tree = scan_tree(&root);
+    assert_eq!(candidate_paths(&tree, &root), ["app/lib/node_modules"]);
+    let global = tree.find_path(&dist).unwrap();
+    let Verdict::Protected(rule) = tree.node(global).verdict() else {
+        panic!("{:?}", tree.node(global).verdict())
+    };
+    assert_eq!(engine().rule(rule).id, "node-global-packages");
+}
+
+#[test]
 fn context_for_reproduces_the_scan_time_verdicts() {
     let (_dir, root) = fixture();
     rust_project(&root.join("ws/a"), true);
