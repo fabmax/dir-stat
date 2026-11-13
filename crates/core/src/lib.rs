@@ -2,6 +2,7 @@
 //! It has no iced dependency, so everything here is testable without a GUI.
 
 pub mod catalog;
+pub mod git;
 pub mod platform;
 pub mod scan;
 pub mod trash;

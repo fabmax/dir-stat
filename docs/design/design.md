@@ -1534,6 +1534,12 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
 - `Tree::context_for`.
 - `git.rs` (`find_git`, batched `check-ignore`/`ls-files`, timeout, dataless skip).
 - *Accept:* the ported 9 tests plus the new ones (§10.1); the catalog and git fixture integration tests; `examples/scan.rs --candidates ~/dev` lists Cargo targets as Safe and node_modules as Review first (Low); a scan of `/Applications` gives 0 candidates (CAT §6 smoke results).
+- *Done 2026-11-13.* `~/dev`: 618 candidates; Safe to delete 108 items / 110 GB (Cargo targets, Gradle builds), Review first 330 items / 4.5 GB (node_modules, .venv as Low), 180 hidden (tracked by git); 27 work trees verified in 6 s. `/Applications`: 0 candidates. Notes:
+  - `classify_file` keeps the prototype's signature (the ported tests use it); the new `Engine::match_file` returns `Option<FileMatch>`.
+  - Every listing is classified, including unreadable and vanished folders, so `context_for` reproduces every node's verdict. The UI decides what to do with an unreadable candidate.
+  - `catalog::warnings(risk, display, reason, repo)` holds the dialog warning text of §5.3, pinned by tests.
+  - `git::plan_jobs` groups candidates by work tree and `git::worktree_of` finds the work tree from stored markers; the scheduling (one job per tick) stays in the app.
+  - **Open catalog issue:** npm's bundled `node_modules` inside Node.js distributions (`…/lib/node_modules/npm/node_modules`, next to npm's own `package.json`) match `node-modules` and are suggested under Review first. Deleting them breaks that npm. Needs a rule fix (e.g. a Protect zone for global `lib/node_modules` prefixes); not changed in M3.
 
 **M4 — App shell, start screen, live scan wiring**
 - `App`/`Env`/`Screen`/`Message` skeleton; `App::boot` vs `App::new`; `PrefsStore`.

@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use arena::Arena;
 
-use crate::catalog::{RootContext, Verdict};
+use crate::catalog::{self, Engine, RootContext, Verdict};
 pub use crate::scan::NodeId;
 use crate::scan::{
     DirListing, ErrorClass, FileEntry, FileMatch, LinkOwners, RootInfo, ScanError, Skip, Summary,
@@ -699,6 +699,38 @@ impl Tree {
 
     pub fn errors(&self) -> &[ErrorRecord] {
         &self.errors
+    }
+
+    /// The classification context for rescanning `id` (design §5.5). Folds `classify_dir`
+    /// down from the root using each node's stored markers, so the rescan classifies the
+    /// subtree exactly as the first scan did.
+    pub fn context_for(&self, engine: &Engine, id: NodeId) -> RootContext {
+        if id == NodeId::ROOT {
+            return self.root_ctx.clone();
+        }
+        let mut chain: Vec<NodeId> = self.ancestors(id).collect();
+        chain.reverse(); // root .. parent
+        let root_markers = self.nodes[NodeId::ROOT].markers;
+        let (_, mut ctx) =
+            catalog::classify_root(engine, &self.root_ctx, &self.root_path, root_markers);
+        let mut name = catalog::name_of(&self.root_path);
+        for &dir in &chain[1..] {
+            let node = &self.nodes[dir];
+            let own = node.name.to_string_lossy().into_owned();
+            ctx = engine.classify_dir(&ctx, &name, &own, node.markers).1;
+            name = own;
+        }
+        let git_root_above = chain
+            .iter()
+            .rev()
+            .find(|&&d| self.nodes[d].markers & catalog::m::GIT != 0)
+            .map(|&d| self.path_of(d))
+            .or_else(|| self.root_ctx.git_root_above.clone());
+        RootContext {
+            parent_ctx: ctx,
+            parent_name: name,
+            git_root_above,
+        }
     }
 
     /// Hard-linked inodes whose owner lies outside `target`: a rescan of `target` must count

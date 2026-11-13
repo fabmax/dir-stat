@@ -85,6 +85,8 @@ fn macos_root_and_data_volume_rules() {
 
 fn shared_for_progress(workers: usize) -> Shared {
     Shared {
+        engine: Arc::new(Engine::new(&Resolver::from_env())),
+        root_ctx: crate::catalog::RootContext::default(),
         threshold: LARGE_FILE,
         root_dev: 0,
         hfs: false,
@@ -96,6 +98,8 @@ fn shared_for_progress(workers: usize) -> Shared {
                 id: NodeId::ROOT,
                 path: "/".into(),
                 dir_alloc: 0,
+                ctx: Default::default(),
+                parent_name: "".into(),
             },
         ),
         cancelled: Arc::new(AtomicBool::new(false)),

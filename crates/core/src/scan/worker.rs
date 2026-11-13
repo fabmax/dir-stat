@@ -14,6 +14,7 @@ use super::queue::StealingQueue;
 use super::{
     DirListing, ErrorClass, FileEntry, LinkOwners, NodeId, Progress, ScanError, Skip, Subdir,
 };
+use crate::catalog::{self, Ctx, Engine, RootContext, m};
 use crate::platform::{self, EntryKind};
 
 /// Check the cancel flag (and publish the file counter) every this many entries.
@@ -28,6 +29,9 @@ pub(super) struct Job {
     pub path: PathBuf,
     /// The directory's own blocks, from the parent's stat of the entry.
     pub dir_alloc: u64,
+    /// The parent's catalog context and name: classifying needs both.
+    pub ctx: Ctx,
+    pub parent_name: Box<str>,
 }
 
 /// Paths that are never stat'ed: mount points and excluded system folders below the root.
@@ -76,6 +80,9 @@ pub(super) struct Counters {
 }
 
 pub(super) struct Shared {
+    pub engine: Arc<Engine>,
+    /// The root's parent context; the root job is classified with it.
+    pub root_ctx: RootContext,
     pub threshold: u64,
     pub root_dev: u64,
     /// HFS+ allows directory hard links: count each directory once.
@@ -203,19 +210,19 @@ fn list_one(shared: &Shared, job: &Job, children: &mut Vec<Job>) -> DirListing {
         Err(e) if platform::is_vanished_dir(&e) => {
             listing.vanished = true;
             counters.vanished.fetch_add(1, Relaxed);
-            return listing;
+            return finish(shared, job, listing, Vec::new(), 0, children);
         }
         Err(e) => {
             listing.error = Some(scan_error(&e));
             counters.errors.fetch_add(1, Relaxed);
-            return listing;
+            return finish(shared, job, listing, Vec::new(), 0, children);
         }
     };
 
     let check_bounds = shared.bounds.parents.contains(&job.path);
     // (name, ino, skip, dir_alloc)
     let mut subdirs: Vec<(Box<OsStr>, u64, Option<Skip>, u64)> = Vec::new();
-    let (mut seen, mut unpublished) = (0u32, 0u64);
+    let (mut seen, mut unpublished, mut markers) = (0u32, 0u64, 0u64);
     for entry in entries {
         let entry = match entry {
             Ok(entry) => entry,
@@ -243,6 +250,7 @@ fn list_one(shared: &Shared, job: &Job, children: &mut Vec<Job>) -> DirListing {
             && entry.file_type().map_or(true, |t| t.is_dir())
             && let Some(skip) = shared.bounds.skip_for(&job.path.join(&name))
         {
+            markers |= catalog::marker_of(&name.to_string_lossy(), true);
             subdirs.push((name.into(), 0, Some(skip), 0));
             continue;
         }
@@ -265,6 +273,7 @@ fn list_one(shared: &Shared, job: &Job, children: &mut Vec<Job>) -> DirListing {
             }
         };
         listing.newest_mtime = listing.newest_mtime.max(meta.mtime);
+        markers |= entry_markers(&job.path, &name, meta.kind);
 
         if meta.kind == EntryKind::Dir {
             let skip = if meta.dev != shared.root_dev {
@@ -307,22 +316,59 @@ fn list_one(shared: &Shared, job: &Job, children: &mut Vec<Job>) -> DirListing {
         }
     }
 
+    counters.files.fetch_add(unpublished, Relaxed);
+    finish(shared, job, listing, subdirs, markers, children)
+}
+
+/// Classifies the listing, reserves the ids of its subdirectories and queues their jobs.
+fn finish(
+    shared: &Shared,
+    job: &Job,
+    mut listing: DirListing,
+    subdirs: Vec<(Box<OsStr>, u64, Option<Skip>, u64)>,
+    markers: u64,
+    children: &mut Vec<Job>,
+) -> DirListing {
+    let name = catalog::name_of(&job.path);
+    let (verdict, ctx) = if job.id == NodeId::ROOT {
+        catalog::classify_root(&shared.engine, &shared.root_ctx, &job.path, markers)
+    } else {
+        shared
+            .engine
+            .classify_dir(&job.ctx, &job.parent_name, &name, markers)
+    };
+    listing.markers = markers;
+    listing.verdict = verdict;
+    for file in &mut listing.large_files {
+        file.matched = shared.engine.match_file(&ctx, &file.name.to_string_lossy());
+    }
+
     // One fetch_add reserves a consecutive id block for all subdirectories.
     let first_child = shared.next_id.fetch_add(subdirs.len() as u32, Relaxed);
     listing.first_child = NodeId(first_child);
+    let parent_name: Box<str> = name.into();
     for (i, (name, ino, skip, dir_alloc)) in subdirs.into_iter().enumerate() {
         if skip.is_none() {
             children.push(Job {
                 id: NodeId(first_child + i as u32),
                 path: job.path.join(&*name),
                 dir_alloc,
+                ctx,
+                parent_name: parent_name.clone(),
             });
         }
         listing.subdirs.push(Subdir { name, ino, skip });
     }
-
-    counters.files.fetch_add(unpublished, Relaxed);
     listing
+}
+
+/// Catalog marker bits of one entry. A `CACHEDIR.TAG` only counts with a valid signature.
+fn entry_markers(dir: &Path, name: &OsStr, kind: EntryKind) -> u64 {
+    let bits = catalog::marker_of(&name.to_string_lossy(), kind == EntryKind::Dir);
+    if bits & m::CACHEDIR_TAG != 0 && !catalog::engine::is_valid_cachedir_tag(&dir.join(name)) {
+        return bits & !m::CACHEDIR_TAG;
+    }
+    bits
 }
 
 /// A hard-linked inode is counted where it is seen first; a rescan counts inodes owned

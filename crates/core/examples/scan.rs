@@ -2,23 +2,30 @@
 //! with `du -skx <dir>` (KiB).
 //!
 //! ```text
-//! cargo run -p dirstat-core --release --example scan -- ~/.cargo [--threads N] [--cancel-after-ms N]
+//! cargo run -p dirstat-core --release --example scan -- ~/.cargo [--threads N] [--cancel-after-ms N] [--candidates]
 //! ```
+//! `--candidates` also lists the cleanup suggestions by section, verified with git.
 
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-use dirstat_core::catalog::{Engine, Resolver};
-use dirstat_core::scan::{self, NodeId, Options, ScanRequest, Update};
-use dirstat_core::tree::Tree;
+use std::collections::{BTreeMap, HashMap};
+
+use dirstat_core::catalog::{
+    Display, Engine, GitState, Resolver, Section, Verdict, Why, display_section,
+};
+use dirstat_core::git::{self, GitStatus};
+use dirstat_core::scan::{self, FileMatch, NodeId, Options, ScanRequest, Update};
+use dirstat_core::tree::{CandidateRef, Tree};
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let (mut root, mut threads, mut cancel_after) = (None, None, None);
+    let (mut root, mut threads, mut cancel_after, mut candidates) = (None, None, None, false);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--threads" => threads = args.next().and_then(|n| n.parse().ok()),
+            "--candidates" => candidates = true,
             "--cancel-after-ms" => {
                 cancel_after = args
                     .next()
@@ -34,7 +41,8 @@ fn main() {
     };
 
     dirstat_core::platform::init_process();
-    let mut opts = Options::new(Arc::new(Engine::new(&Resolver::from_env())));
+    let engine = Arc::new(Engine::new(&Resolver::from_env().canonicalized()));
+    let mut opts = Options::new(Arc::clone(&engine));
     if let Some(n) = threads {
         opts.threads = n;
     }
@@ -123,6 +131,111 @@ fn main() {
         let node = tree.node(child);
         println!("{:>12} KiB  {:?}", node.total().alloc / 1024, node.name());
     }
+    if candidates {
+        print_candidates(&tree, &engine);
+    }
+}
+
+/// The cleanup suggestions as the pane would group them (design §5.3, §5.6).
+fn print_candidates(tree: &Tree, engine: &Engine) {
+    let started = Instant::now();
+    let (outside, jobs) = git::plan_jobs(tree, tree.candidates().iter().copied());
+    let mut states: HashMap<CandidateRef, GitState> = outside
+        .into_iter()
+        .map(|c| (c, GitState::NotInRepo))
+        .collect();
+    let git = git::find_git();
+    for job in &jobs {
+        match &git {
+            Some(git) => states.extend(
+                git::verify(git, job)
+                    .into_iter()
+                    .map(|(c, s)| (c, GitState::Known(s))),
+            ),
+            None => states.extend(
+                job.items
+                    .iter()
+                    .map(|&(c, _)| (c, GitState::Known(GitStatus::Unavailable))),
+            ),
+        }
+    }
+    println!(
+        "\n{} candidates, {} work trees checked with git in {:.2} s",
+        tree.candidates().len(),
+        jobs.len(),
+        started.elapsed().as_secs_f64()
+    );
+
+    let mut shown: BTreeMap<&str, Vec<(u64, String)>> = BTreeMap::new();
+    let mut hidden = 0;
+    for &candidate in tree.candidates() {
+        let (rule, size, path) = match candidate {
+            CandidateRef::Dir(id) => {
+                let Verdict::Target { rule, .. } = tree.node(id).verdict() else {
+                    continue;
+                };
+                (rule, tree.node(id).total().alloc, tree.path_of(id))
+            }
+            CandidateRef::File(dir, index) => {
+                let file = &tree.node(dir).large_files()[index as usize];
+                let Some(FileMatch::Target(rule)) = file.matched else {
+                    continue;
+                };
+                (rule, file.alloc, tree.path_of(dir).join(&*file.name))
+            }
+        };
+        let rule = engine.rule(rule);
+        let display = display_section(
+            rule.risk().expect("targets have a risk"),
+            states[&candidate],
+        );
+        let section = match display {
+            Display::Shown {
+                section: Section::SafeToDelete,
+                ..
+            } => "1 Safe to delete",
+            Display::Shown {
+                section: Section::ReviewFirst,
+                ..
+            } => "2 Review first",
+            Display::Hidden | Display::Pending => {
+                hidden += 1;
+                continue;
+            }
+        };
+        let why = match display {
+            Display::Shown {
+                why: Why::GitNotIgnored,
+                ..
+            } => " (not ignored by git)",
+            Display::Shown {
+                why: Why::GitUnavailable,
+                ..
+            } => " (couldn't check with git)",
+            _ => "",
+        };
+        let label = format!(
+            "{} [{:?}{why}]  {}",
+            rule.name,
+            rule.risk().unwrap(),
+            path.display()
+        );
+        shown.entry(section).or_default().push((size, label));
+    }
+    for (section, mut items) in shown {
+        items.sort_by_key(|(size, _)| std::cmp::Reverse(*size));
+        let total: u64 = items.iter().map(|(size, _)| size).sum();
+        println!(
+            "\n{} — {} items, {} KiB",
+            &section[2..],
+            items.len(),
+            total / 1024
+        );
+        for (size, label) in items.iter().take(15) {
+            println!("{:>12} KiB  {label}", size / 1024);
+        }
+    }
+    println!("\nhidden (tracked by git): {hidden}");
 }
 
 #[cfg(unix)]

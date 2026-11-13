@@ -18,6 +18,7 @@ use super::{
     Batch, Boundaries, DirListing, NodeId, Options, RootInfo, ScanRequest, StartError, Summary,
     Update,
 };
+use crate::catalog;
 use crate::platform::{self, Mount};
 
 pub enum Delivery {
@@ -124,29 +125,34 @@ fn scan_main(req: ScanRequest, opts: Options, mut sink: impl UpdateSink, control
     let fs_type = platform::fs_type_of(&root, &mounts);
     let bounds = boundary_set(&root, &req.boundaries, &mounts);
     let hfs = fs_type == "hfs";
+    let context = req
+        .context
+        .unwrap_or_else(|| catalog::root_context(&opts.engine, &root));
     sink.deliver_final(Update::Started(RootInfo {
         root: root.clone(),
         dev: meta.dev,
         ino: meta.ino,
         fs_type,
-        context: req.context.unwrap_or_default(),
+        context: context.clone(),
     }));
 
     let threads = opts.threads.max(1);
+    let root_job = Job {
+        id: NodeId::ROOT,
+        path: root,
+        dir_alloc: meta.alloc,
+        ctx: context.parent_ctx,
+        parent_name: context.parent_name.as_str().into(),
+    };
     let shared = Arc::new(Shared {
+        engine: Arc::clone(&opts.engine),
+        root_ctx: context,
         threshold: opts.large_file_threshold,
         root_dev: meta.dev,
         hfs,
         bounds,
         counted_elsewhere: req.counted_elsewhere,
-        queue: StealingQueue::new(
-            threads,
-            Job {
-                id: NodeId::ROOT,
-                path: root,
-                dir_alloc: meta.alloc,
-            },
-        ),
+        queue: StealingQueue::new(threads, root_job),
         cancelled: Arc::clone(&control.cancelled),
         next_id: AtomicU32::new(1),
         links: Mutex::default(),
