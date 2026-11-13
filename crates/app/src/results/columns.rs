@@ -10,9 +10,9 @@ use iced::widget::{
 };
 use iced::{Center, Element, Fill, Length, Right, mouse};
 
-use super::Results;
 use super::order::{Column as SortColumn, split_files};
 use super::rows::{self, OpenAggregate, ROW_H, Row, RowKey, SmallFiles};
+use super::{Results, errors};
 use crate::app::Message;
 use crate::theme::{self, TextRole};
 use crate::{fonts, format, widgets};
@@ -66,6 +66,9 @@ pub fn pane_content(results: &Results, size: iced::Size, now: Instant) -> Elemen
     let layout = Layout::for_width(size.width);
     let header = header(results, layout);
     let tree = &results.tree;
+    if let Some(error) = errors::root_unreadable(tree) {
+        return errors::root_unreadable_view(results, error);
+    }
     if !tree.is_started() || tree.node(results.view.zoom).state() == NodeState::Pending {
         return Column::new().push(header).push(placeholder_rows()).into();
     }
@@ -373,8 +376,8 @@ pub enum Marker {
 pub enum Badge {
     /// Filled warning badge: this folder couldn't be read.
     Unreadable(ErrorClass),
-    /// Outline badge: something inside couldn't be read.
-    UnreadableInside,
+    /// Outline badge: this many folders inside couldn't be read.
+    UnreadableInside(u32),
     Tag(&'static str),
 }
 
@@ -480,8 +483,11 @@ pub fn cells_for(
                     cells.name_tone = Tone::Secondary;
                     cells.badge = Some(Badge::Tag(match skip {
                         Skip::MountPoint | Skip::OtherFilesystem => "other volume",
-                        Skip::CloudOnly => "in iCloud – not scanned",
-                        Skip::Excluded => "not scanned",
+                        Skip::CloudOnly => "Cloud folder – not scanned",
+                        Skip::Excluded if node.name() == "Backups.backupdb" => {
+                            "Time Machine backups – not scanned"
+                        }
+                        Skip::Excluded => "System folder – not scanned",
                         Skip::LinkedDir => "counted elsewhere",
                     }));
                 }
@@ -514,8 +520,9 @@ pub fn cells_for(
                     }
                     if let Some(error) = node.error() {
                         cells.badge = Some(Badge::Unreadable(error.class));
+                        cells.name_tone = Tone::Secondary;
                     } else if total.error_dirs > 0 {
-                        cells.badge = Some(Badge::UnreadableInside);
+                        cells.badge = Some(Badge::UnreadableInside(total.error_dirs));
                     }
                     if node.has_flag(NodeFlags::VANISHED) {
                         cells.name_tone = Tone::Muted;
@@ -651,16 +658,16 @@ fn badge_view<'a>(badge: Badge) -> Element<'a, Message> {
             container(theme::CAPTION.text("!").style(theme::text_on_warning))
                 .padding([0, 5])
                 .style(theme::warning_badge),
-            tip_box(unreadable_reason(class)),
+            tip_box(errors::reason(class)),
             tooltip::Position::Bottom,
         )
         .delay(TOOLTIP_DELAY)
         .into(),
-        Badge::UnreadableInside => tooltip(
+        Badge::UnreadableInside(count) => tooltip(
             container(theme::CAPTION.text("!").style(theme::text_warning))
                 .padding([0, 4])
                 .style(theme::warning_outline),
-            tip_box("Some folders inside couldn't be read."),
+            tip_box(errors::inside_tooltip(count)),
             tooltip::Position::Bottom,
         )
         .delay(TOOLTIP_DELAY)
@@ -670,20 +677,6 @@ fn badge_view<'a>(badge: Badge) -> Element<'a, Message> {
             .text(label)
             .style(theme::text_muted)
             .into(),
-    }
-}
-
-/// UX §10.1 by error class.
-pub fn unreadable_reason(class: ErrorClass) -> &'static str {
-    match class {
-        ErrorClass::PrivacyBlocked => {
-            "macOS privacy protection blocked access. Full Disk Access lets dir-stat read it."
-        }
-        ErrorClass::PermissionDenied => "You don't have permission to read this folder.",
-        ErrorClass::CloudNotDownloaded => "This folder is in iCloud and not downloaded.",
-        ErrorClass::PathTooLong => "The path is too long to read.",
-        ErrorClass::Internal => "dir-stat hit an internal error here.",
-        ErrorClass::Other => "This folder couldn't be read.",
     }
 }
 
@@ -822,6 +815,48 @@ mod tests {
             Duration::from_millis(2)
         };
         assert!(best < limit, "view took {best:?}");
+    }
+
+    #[test]
+    fn unreadable_folders_and_their_parents() {
+        let tree = TreeBuilder::new(
+            "/r",
+            dir("r").child(dir("outer").child(dir("locked").error(ErrorClass::PermissionDenied))),
+        )
+        .build();
+        let locked = cells(&tree, RowKey::Dir(NodeId(2)));
+        assert_eq!(
+            locked.badge,
+            Some(Badge::Unreadable(ErrorClass::PermissionDenied)),
+            "filled badge"
+        );
+        assert_eq!(locked.name_tone, Tone::Secondary);
+        let outer = cells(&tree, RowKey::Dir(NodeId(1)));
+        assert_eq!(
+            outer.badge,
+            Some(Badge::UnreadableInside(1)),
+            "outline badge with the count"
+        );
+        let tags = TreeBuilder::new(
+            "/r",
+            dir("r")
+                .child(dir("Backups.backupdb").skip(Skip::Excluded))
+                .child(dir("icloud").skip(Skip::CloudOnly))
+                .child(dir(".vol").skip(Skip::Excluded)),
+        )
+        .build();
+        assert_eq!(
+            cells(&tags, RowKey::Dir(NodeId(1))).badge,
+            Some(Badge::Tag("Time Machine backups – not scanned"))
+        );
+        assert_eq!(
+            cells(&tags, RowKey::Dir(NodeId(2))).badge,
+            Some(Badge::Tag("Cloud folder – not scanned"))
+        );
+        assert_eq!(
+            cells(&tags, RowKey::Dir(NodeId(3))).badge,
+            Some(Badge::Tag("System folder – not scanned"))
+        );
     }
 
     #[test]

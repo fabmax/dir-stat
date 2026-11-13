@@ -214,6 +214,47 @@ pub const PRIVACY_SETTINGS_URL: Option<&str> = if cfg!(target_os = "macos") {
     None
 };
 
+/// The app dir-stat was started from, if it was a terminal: macOS grants privacy permissions
+/// to that app, so the Full Disk Access hint must name it (UX §10.3). `None` off macOS.
+pub fn launched_from_terminal(own_bundle_id: Option<&str>) -> Option<String> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    terminal_app_name(
+        std::env::var("TERM_PROGRAM").ok().as_deref(),
+        std::env::var("__CFBundleIdentifier").ok().as_deref(),
+        own_bundle_id,
+    )
+}
+
+/// `TERM_PROGRAM` first; else `__CFBundleIdentifier` unless it is our own (LaunchServices
+/// sets it for every app, including dir-stat.app started from Finder).
+pub fn terminal_app_name(
+    term_program: Option<&str>,
+    bundle_id: Option<&str>,
+    own_bundle_id: Option<&str>,
+) -> Option<String> {
+    let known = |id: &str| -> Option<&'static str> {
+        Some(match id {
+            "Apple_Terminal" | "com.apple.Terminal" => "Terminal",
+            "iTerm.app" | "com.googlecode.iterm2" => "iTerm",
+            "vscode" | "com.microsoft.VSCode" => "Visual Studio Code",
+            "WarpTerminal" | "dev.warp.Warp-Stable" => "Warp",
+            "ghostty" | "com.mitchellh.ghostty" => "Ghostty",
+            "WezTerm" | "com.github.wez.wezterm" => "WezTerm",
+            "Hyper" | "co.zeit.hyper" => "Hyper",
+            "kitty" | "net.kovidgoyal.kitty" => "kitty",
+            "alacritty" | "org.alacritty" => "Alacritty",
+            _ => return None,
+        })
+    };
+    if let Some(program) = term_program.filter(|p| !p.is_empty()) {
+        return Some(known(program).map_or_else(|| program.to_string(), str::to_string));
+    }
+    let id = bundle_id.filter(|id| !id.is_empty() && Some(*id) != own_bundle_id)?;
+    Some(known(id).map_or_else(|| id.to_string(), str::to_string))
+}
+
 /// The filesystem type of the mount containing `path` (longest matching mount point).
 pub fn fs_type_of(path: &Path, mounts: &[Mount]) -> String {
     mounts
@@ -291,6 +332,30 @@ mod tests {
         assert_eq!(classify_error(&e(libc::EIO)), ErrorClass::Other);
         assert!(is_vanished_dir(&e(libc::ENOENT)) && is_vanished_dir(&e(libc::ENOTDIR)));
         assert!(!is_vanished_dir(&e(libc::ELOOP)) && is_vanished_entry(&e(libc::ELOOP)));
+    }
+
+    #[test]
+    fn terminal_names() {
+        assert_eq!(
+            terminal_app_name(Some("Apple_Terminal"), None, None).as_deref(),
+            Some("Terminal")
+        );
+        assert_eq!(
+            terminal_app_name(Some("iTerm.app"), Some("com.googlecode.iterm2"), None).as_deref(),
+            Some("iTerm")
+        );
+        assert_eq!(
+            terminal_app_name(Some("SomeTerm"), None, None).as_deref(),
+            Some("SomeTerm")
+        );
+        assert_eq!(
+            terminal_app_name(None, Some("com.apple.Terminal"), None).as_deref(),
+            Some("Terminal")
+        );
+        // Started from Finder: LaunchServices sets our own bundle id.
+        let own = Some("com.example.dir-stat");
+        assert_eq!(terminal_app_name(None, own, own), None);
+        assert_eq!(terminal_app_name(None, None, None), None);
     }
 
     #[test]

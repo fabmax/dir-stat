@@ -30,6 +30,7 @@ fn app() -> App {
         fda: None,
         system_name: "Test Disk".into(),
         home: None,
+        terminal: None,
     };
     App::new(env, Cli::default()).0
 }
@@ -238,4 +239,48 @@ fn copy_path_toasts_and_stale_listings_are_ignored() {
     let _ = app.update(Message::SmallFilesListed(id, NodeId(1), Err("gone".into())));
     let small = &results(&app).view.open_aggregates[&NodeId(1)].small;
     assert_eq!(small, &SmallFiles::Failed("gone".into()));
+}
+
+#[test]
+fn errors_popover_and_full_disk_access_bar() {
+    use dirstat_core::scan::ErrorClass;
+    let mut app = app();
+    let builder = TreeBuilder::new(
+        "/r",
+        dir("r")
+            .child(dir("mail").error(ErrorClass::PrivacyBlocked))
+            .child(dir("safari").error(ErrorClass::PrivacyBlocked))
+            .child(dir("ok")),
+    );
+    let id = app.start_simulated("/r");
+    let _ = app.update(Message::Scan(id, Update::Started(builder.root_info())));
+    let _ = app.update(Message::Scan(id, batch(builder.listings())));
+    assert_eq!(
+        results(&app).fda_bar,
+        cfg!(target_os = "macos"),
+        "the first EPERM raises the bar"
+    );
+
+    // Stop: the popover still lists the errors.
+    let _ = app.update(Message::Stop);
+    let _ = app.update(Message::ToggleErrorsPopover);
+    assert!(results(&app).errors_popover);
+    assert_eq!(
+        crate::results::errors::headline(&results(&app).tree).as_deref(),
+        Some("2 folders couldn't be read")
+    );
+    let _ = app.update(Message::CopyErrorList);
+    assert_eq!(app.toast_text(), Some("Copied the list"));
+    let _ = app.update(Message::Key(crate::keys::KeyAction::Escape));
+    assert!(
+        !results(&app).errors_popover,
+        "Esc closes the popover first"
+    );
+
+    // "Not Now" holds for the session, also for the next scan.
+    let _ = app.update(Message::DismissFdaBar);
+    let id = app.start_simulated("/r");
+    let _ = app.update(Message::Scan(id, Update::Started(builder.root_info())));
+    let _ = app.update(Message::Scan(id, batch(builder.listings())));
+    assert!(!app.fda_bar_visible());
 }

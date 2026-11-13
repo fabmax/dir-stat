@@ -7,10 +7,10 @@ use std::time::{Duration, Instant};
 use dirstat_core::scan::Progress;
 use dirstat_core::tree::{NodeId, Tree};
 use dirstat_core::volumes::ScanEstimate;
-use iced::widget::{Space, button, column, container, row, space, text};
+use iced::widget::{Space, button, column, container, mouse_area, row, space, text, tooltip};
 use iced::{Center, Element, Fill, FillPortion, Length};
 
-use super::{Phase, Results};
+use super::{Phase, Results, errors};
 use crate::app::Message;
 use crate::theme::{self, TextRole};
 use crate::{format, widgets};
@@ -90,6 +90,8 @@ pub struct Lines {
     pub line2: String,
     /// Shown at the end of line 2, muted and middle-truncated.
     pub path: Option<String>,
+    /// "23 folders couldn't be read": opens the errors popover.
+    pub link: Option<String>,
     pub button: &'static str,
 }
 
@@ -101,6 +103,7 @@ pub fn lines(results: &Results, title: &str) -> Lines {
             line1: format!("Opening {title}…"),
             line2: String::new(),
             path: None,
+            link: None,
             button: "Stop",
         },
         Phase::Scanning => {
@@ -135,6 +138,7 @@ pub fn lines(results: &Results, title: &str) -> Lines {
                 line1,
                 line2: stats.join(" · "),
                 path,
+                link: None,
                 button: "Stop",
             }
         }
@@ -144,16 +148,9 @@ pub fn lines(results: &Results, title: &str) -> Lines {
                 .summary
                 .as_ref()
                 .map_or(p.elapsed, |s| s.progress.elapsed);
-            let mut line2 = format!("Scanned in {}", format::elapsed(elapsed));
-            let unreadable =
-                total.error_dirs + u32::from(results.tree.node(NodeId::ROOT).error().is_some());
-            if unreadable > 0 {
-                line2 += &format!(
-                    " · {} couldn't be read",
-                    format::plural(u64::from(unreadable), "folder", "folders")
-                );
-            }
+            let line2 = format!("Scanned in {}", format::elapsed(elapsed));
             Lines {
+                link: errors::headline(&results.tree),
                 line1: format!(
                     "{title} · {} · {}",
                     format::size(total.alloc),
@@ -179,6 +176,7 @@ pub fn lines(results: &Results, title: &str) -> Lines {
                 ),
                 line2: "Sizes marked ≥ are incomplete".into(),
                 path: None,
+                link: errors::headline(&results.tree),
                 button: "Rescan",
             }
         }
@@ -237,7 +235,17 @@ pub fn view<'a>(
             .style(theme::text_secondary)
             .wrapping(text::Wrapping::None)
     ]
-    .push(path.filter(|_| path_room >= 120.0));
+    .push(path.filter(|_| path_room >= 120.0))
+    .push(l.link.map(|link| {
+        mouse_area(
+            theme::CAPTION
+                .text(format!(" · {link}"))
+                .style(theme::text_accent_link)
+                .wrapping(text::Wrapping::None),
+        )
+        .on_press(Message::ToggleErrorsPopover)
+        .interaction(iced::mouse::Interaction::Pointer)
+    }));
 
     let body = row![
         container(icon).width(16).center_x(16),
@@ -254,15 +262,28 @@ pub fn view<'a>(
     .padding([2, 10]);
 
     let line = progress_line(results, now);
-    container(column![
+    let field = container(column![
         container(body).height(Fill).center_y(Fill).clip(true),
         line
     ])
     .width(width)
     .height(36)
     .style(theme::activity_field)
-    .clip(true)
-    .into()
+    .clip(true);
+    // Folders that vanished or changed are not errors; they are only mentioned here.
+    let changed = results.activity.progress.vanished;
+    if changed > 0 {
+        let tip = format!(
+            "{} changed during the scan",
+            format::plural(changed, "item", "items")
+        );
+        let tip = container(theme::SMALL.text(tip))
+            .padding([4, 8])
+            .style(theme::raised);
+        tooltip(field, tip, tooltip::Position::Bottom).into()
+    } else {
+        field.into()
+    }
 }
 
 /// The 2 px line along the bottom edge: determinate for volume roots, else a sweep.

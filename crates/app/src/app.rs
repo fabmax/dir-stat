@@ -10,7 +10,9 @@ use dirstat_core::scan::{Options, ScanRequest, StartError, Update};
 use dirstat_core::smallfiles::{self, SmallFile};
 use dirstat_core::tree::NodeId;
 use dirstat_core::volumes::{self, CardKind, VolumeCard};
-use iced::widget::{button, center, column, container, operation, row, scrollable, space, stack};
+use iced::widget::{
+    button, center, column, container, mouse_area, operation, row, scrollable, space, stack,
+};
 use iced::{
     Center, Element, Fill, Size, Subscription, Task, Theme, event, keyboard, mouse, time, window,
 };
@@ -21,7 +23,9 @@ use crate::results::order::Column;
 use crate::results::rows::RowKey;
 use crate::results::scan_task::{self, ScanIdGen};
 use crate::results::tree_view::Effect;
-use crate::results::{Results, ScanOutcome, StopOutcome, activity, columns, nav, selection_bar};
+use crate::results::{
+    Results, ScanOutcome, StopOutcome, activity, columns, errors, nav, selection_bar,
+};
 use crate::start::{self, StartState};
 use crate::{Cli, theme};
 
@@ -36,6 +40,8 @@ pub struct Env {
     pub fda: Option<bool>,
     pub system_name: String,
     pub home: Option<PathBuf>,
+    /// macOS: the terminal dir-stat was started from (it holds the privacy grants).
+    pub terminal: Option<String>,
 }
 
 pub enum Screen {
@@ -53,6 +59,8 @@ pub struct App {
     left_button_held: bool,
     pointer_in_tree: bool,
     toast: Option<Toast>,
+    /// "Not Now" hides the Full Disk Access bar for the rest of the session.
+    fda_dismissed: bool,
     scan_ids: ScanIdGen,
     #[cfg(feature = "screenshot")]
     script: Option<crate::script::Script>,
@@ -95,6 +103,11 @@ pub enum Message {
     RevealSelection,
     CopySelection,
     ScanSelection,
+    // errors
+    ToggleErrorsPopover,
+    CopyErrorList,
+    RevealInTree(NodeId),
+    DismissFdaBar,
     // chrome
     DismissToast,
     Key(KeyAction),
@@ -122,6 +135,8 @@ impl App {
             fda: platform::full_disk_access(),
             system_name,
             home: platform::home_dir(),
+            // The bundle id is set once dir-stat ships as an app bundle (M11).
+            terminal: platform::launched_from_terminal(None),
         };
         let (app, task) = App::new(env, cli);
         #[cfg(feature = "screenshot")]
@@ -148,6 +163,7 @@ impl App {
             left_button_held: false,
             pointer_in_tree: false,
             toast: None,
+            fda_dismissed: false,
             scan_ids: ScanIdGen::default(),
             #[cfg(feature = "screenshot")]
             script: None,
@@ -291,6 +307,24 @@ impl App {
                 }
             }
             Message::DismissToast => self.toast = None,
+            Message::ToggleErrorsPopover => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.errors_popover = !r.errors_popover && !r.tree.errors().is_empty();
+                }
+            }
+            Message::CopyErrorList => {
+                if let Screen::Results(r) = &self.screen {
+                    let list = errors::tsv(&r.tree);
+                    self.toast = Some(Toast::info("Copied the list"));
+                    return iced::clipboard::write(list);
+                }
+            }
+            Message::RevealInTree(id) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.reveal_in_tree(id, Instant::now());
+                }
+            }
+            Message::DismissFdaBar => self.fda_dismissed = true,
             Message::SortBy(column) => {
                 if let Screen::Results(r) = &mut self.screen {
                     r.sort_by(column, Instant::now());
@@ -407,6 +441,15 @@ impl App {
         if let Screen::Results(r) = &mut self.screen {
             r.view.reorder.activity(Instant::now());
         }
+        if let Screen::Results(r) = &mut self.screen
+            && r.errors_popover
+        {
+            // An open popover takes Esc; other keys still work on the tree.
+            if action == KeyAction::Escape {
+                r.errors_popover = false;
+                return Task::none();
+            }
+        }
         match (&mut self.screen, action) {
             (_, KeyAction::ChooseFolder) => return choose_folder(),
             (Screen::Start(start), action) => {
@@ -446,6 +489,16 @@ impl App {
                 }
                 Due::Path(path) => return self.start_scan(path),
                 Due::Key(action) => return self.key(action),
+                Due::Click(name) => {
+                    let message = match name.as_str() {
+                        "errors" => Some(Message::ToggleErrorsPopover),
+                        "fda-not-now" => Some(Message::DismissFdaBar),
+                        _ => None,
+                    };
+                    if let Some(message) = message {
+                        return self.update(message);
+                    }
+                }
                 Due::Expand(rel) => {
                     if let Screen::Results(r) = &mut self.screen
                         && let Some(id) = r.tree.find_path(&r.tree.root_path().join(&rel))
@@ -522,7 +575,25 @@ impl App {
                     ..iced::Padding::ZERO
                 })
         });
-        stack![base].push(overlay).push(toast).into()
+        let popover = match &self.screen {
+            Screen::Results(r) if r.errors_popover => {
+                // Anchored below the activity field; a click outside closes it.
+                let card = container(errors::popover(r, self.env.home.as_deref()))
+                    .width(Fill)
+                    .align_x(Center)
+                    .padding(iced::Padding {
+                        top: 48.0,
+                        ..iced::Padding::ZERO
+                    });
+                Some(stack![
+                    mouse_area(container(space()).width(Fill).height(Fill))
+                        .on_press(Message::ToggleErrorsPopover),
+                    iced::widget::opaque(card),
+                ])
+            }
+            _ => None,
+        };
+        stack![base].push(popover).push(overlay).push(toast).into()
     }
 
     /// Carries out what a tree action asked for: listings, reveals, copies.
@@ -579,9 +650,13 @@ impl App {
             nav::view(results, width, home),
             rule(),
             columns::view(results, Instant::now()),
-            rule(),
-            selection_bar::view(results, width, home, unix_now()),
         ]
+        .push(
+            (results.fda_bar && !self.fda_dismissed)
+                .then(|| errors::fda_bar(self.env.terminal.as_deref())),
+        )
+        .push(rule())
+        .push(selection_bar::view(results, width, home, unix_now()))
         .into()
     }
 }
@@ -707,6 +782,10 @@ impl App {
 
     pub fn prefs(&self) -> &Prefs {
         &self.prefs
+    }
+
+    pub fn fda_bar_visible(&self) -> bool {
+        matches!(&self.screen, Screen::Results(r) if r.fda_bar) && !self.fda_dismissed
     }
 
     pub fn toast_text(&self) -> Option<&str> {

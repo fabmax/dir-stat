@@ -1593,6 +1593,11 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
 - Root-unreadable state; start-screen footnote with `full_disk_access()`.
 - Cloud-folder, excluded, linked-folder and vanished rows.
 - *Accept:* the `chmod 000` fixture shows the filled badge and the parent the outline badge; scanning `~/Library` without FDA shows the FDA bar once; the popover lists paths, also after Stop, and [Copy] produces TSV; screenshots of the popover and the FDA bar via `DIRSTAT_SCRIPT`.
+- *Done 2026-11-13.* Notes:
+  - The FDA bar was checked by scanning `/Library/Application Support` (its `com.apple.TCC` gives EPERM) instead of `~/Library`: inside `~/Library`, macOS 14+ asks before reading other apps' containers, and a scripted check must not raise prompts. The "once" rule and the session-wide "Not Now" are app-level tests. The unreadable-root state was checked with `~/Library/Mail`.
+  - The terminal name comes from `TERM_PROGRAM`/`__CFBundleIdentifier` (it showed "Ghostty"); the own bundle id is passed as `None` until M11 builds the app bundle.
+  - The popover title counts error records: "N folders couldn't be read", or "N items" when unreadable files are among them.
+  - `DIRSTAT_SCRIPT` gained `click:errors` and `click:fda-not-now`.
 
 **M8 — Candidate status and trash flow**
 - `results/candidates.rs`: git job scheduling on the tick, status map, `GitState` → `display_section`.

@@ -292,6 +292,30 @@ impl TreeView {
         Some(offset)
     }
 
+    /// Shows a folder in the tree: zooms out if it is outside the zoom root, expands its
+    /// ancestors, selects it and centers it.
+    pub fn reveal_node(&mut self, tree: &mut Tree, id: NodeId, now: Instant) -> Option<f32> {
+        tree.get(id)?;
+        if !tree.is_within(id, self.zoom) {
+            self.history.back.push(self.place());
+            self.history.forward.clear();
+            self.zoom = NodeId::ROOT;
+        }
+        let ancestors: Vec<NodeId> = tree.ancestors(id).take_while(|&a| a != self.zoom).collect();
+        for a in ancestors {
+            tree.set_flag(a, NodeFlags::EXPANDED, true);
+        }
+        self.sync_orders(tree);
+        self.select(RowKey::Dir(id), now);
+        self.rows = rows::build(tree, self.zoom, &self.orders, &self.open_aggregates);
+        self.last_rows_build = Some(now);
+        let index = self.rows.iter().position(|r| r.key == RowKey::Dir(id))?;
+        let offset = (index as f32 * ROW_H - self.viewport.height / 2.0)
+            .clamp(0.0, self.viewport.max_offset(self.rows.len()));
+        self.viewport.offset_y = offset;
+        Some(offset)
+    }
+
     /// Scrolls the selection into view if it isn't.
     fn reveal_selection(&mut self) -> Option<f32> {
         let index = self
@@ -695,6 +719,25 @@ mod tests {
             "the folder is visible"
         );
         assert!(view.history.can_go_back() && !view.history.can_go_forward());
+    }
+
+    #[test]
+    fn revealing_a_deep_folder_expands_its_ancestors() {
+        let builder = TreeBuilder::new(
+            "/r",
+            dir("r")
+                .child(dir("a").child(dir("b").child(dir("c"))))
+                .child(dir("x")),
+        );
+        let (mut tree, mut view) = ready(&builder);
+        let c = tree.find_path(std::path::Path::new("/r/a/b/c")).unwrap();
+        let x = tree.find_path(std::path::Path::new("/r/x")).unwrap();
+        let now = Instant::now();
+        view.zoom_to(&tree, x, None, now);
+        assert!(view.reveal_node(&mut tree, c, now).is_some());
+        assert_eq!(view.zoom, NodeId::ROOT, "outside the zoom root: zoomed out");
+        assert_eq!(view.selection, Some(RowKey::Dir(c)));
+        assert!(view.rows.iter().any(|r| r.key == RowKey::Dir(c)));
     }
 
     #[test]

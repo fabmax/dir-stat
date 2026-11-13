@@ -535,3 +535,23 @@ pub fn icon_button(theme: &Theme, status: button::Status) -> button::Style {
         ..button::Style::default()
     }
 }
+
+/// Popovers: raised, radius 8, with shadow (UX §11.2).
+pub fn popover(theme: &Theme) -> container::Style {
+    toast(theme)
+}
+
+/// The Full Disk Access info bar at the bottom of the tree pane.
+pub fn info_bar(theme: &Theme) -> container::Style {
+    let tokens = tokens(theme);
+    container::Style {
+        background: Some(tokens.bg_raised.into()),
+        border: Border {
+            color: tokens.border_hairline,
+            width: 1.0,
+            radius: 0.0.into(),
+        },
+        text_color: Some(tokens.text_primary),
+        ..container::Style::default()
+    }
+}

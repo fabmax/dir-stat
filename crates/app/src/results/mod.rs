@@ -2,6 +2,7 @@
 
 pub mod activity;
 pub mod columns;
+pub mod errors;
 pub mod nav;
 pub mod order;
 pub mod rows;
@@ -51,6 +52,9 @@ pub struct Results {
     pub scroll_to: Option<f32>,
     /// The full scan this screen shows; results of background jobs carry it.
     pub scan_id: ScanId,
+    /// macOS: the first privacy-blocked folder of this scan raised the Full Disk Access bar.
+    pub fda_bar: bool,
+    pub errors_popover: bool,
 }
 
 /// What a scan update means for the screen.
@@ -82,6 +86,8 @@ impl Results {
     ) -> Results {
         Results {
             scan_id: active.id,
+            fda_bar: false,
+            errors_popover: false,
             tree: Tree::opening(root),
             phase: Phase::Opening,
             active: Some(active),
@@ -119,6 +125,9 @@ impl Results {
                 for listing in batch.listings {
                     let id = listing.id;
                     let effect = self.tree.apply(listing);
+                    if effect.first_privacy_error && cfg!(target_os = "macos") {
+                        self.fda_bar = true;
+                    }
                     self.view.on_listing(&self.tree, id, effect);
                 }
                 if from_active {
@@ -249,6 +258,16 @@ impl Results {
             self.scroll_to = self
                 .view
                 .small_files_listed(&self.tree, dir, result, now)
+                .or(self.scroll_to);
+        }
+    }
+
+    pub fn reveal_in_tree(&mut self, id: dirstat_core::tree::NodeId, now: Instant) {
+        self.errors_popover = false;
+        if self.tree.is_started() {
+            self.scroll_to = self
+                .view
+                .reveal_node(&mut self.tree, id, now)
                 .or(self.scroll_to);
         }
     }

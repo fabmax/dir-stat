@@ -22,6 +22,8 @@ pub enum Step {
     Key(KeyAction),
     /// Toggle a folder, by path relative to the scan root.
     Expand(PathBuf),
+    /// Press a named target: `errors`, `fda-not-now`.
+    Click(String),
 }
 
 /// What the app should do on this tick.
@@ -32,6 +34,7 @@ pub enum Due {
     Path(PathBuf),
     Key(KeyAction),
     Expand(PathBuf),
+    Click(String),
     Done,
 }
 
@@ -82,6 +85,7 @@ impl Script {
                 Some(Step::Path(path)) => return Due::Path(path),
                 Some(Step::Key(action)) => return Due::Key(action),
                 Some(Step::Expand(rel)) => return Due::Expand(rel),
+                Some(Step::Click(name)) => return Due::Click(name),
             }
         }
         Due::Nothing
@@ -103,11 +107,12 @@ pub fn parse(spec: &str) -> Result<Vec<Step>, String> {
             Some(("shot", path)) if !path.is_empty() => Ok(Step::Shot(path.into())),
             Some(("path", path)) if !path.is_empty() => Ok(Step::Path(path.into())),
             Some(("expand", rel)) if !rel.is_empty() => Ok(Step::Expand(rel.into())),
+            Some(("click", name)) if !name.is_empty() => Ok(Step::Click(name.into())),
             Some(("key", name)) => KeyAction::from_name(name)
                 .map(Step::Key)
                 .ok_or_else(|| format!("unknown key action {name:?}")),
             _ => Err(format!(
-                "unsupported script step {step:?} (supported: wait:<ms>, shot:<file.png>, path:<dir>, key:<action>, expand:<rel>)"
+                "unsupported script step {step:?} (supported: wait:<ms>, shot:<file.png>, path:<dir>, key:<action>, expand:<rel>, click:<target>)"
             )),
         })
         .collect()
@@ -161,7 +166,10 @@ mod tests {
             vec![Step::Path("/tmp".into()), Step::Key(KeyAction::Stop)]
         );
         assert!(parse("key:Sideways").is_err());
-        assert!(parse("click:x").is_err());
+        assert_eq!(
+            parse("click:errors").unwrap(),
+            vec![Step::Click("errors".into())]
+        );
         assert!(parse("wait:soon").is_err());
         assert!(parse("shot:").is_err());
     }

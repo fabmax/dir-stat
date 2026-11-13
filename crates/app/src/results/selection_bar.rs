@@ -10,7 +10,6 @@ use iced::widget::{Row, button, container, row, space, tooltip};
 use iced::{Center, Element, Fill};
 
 use super::Results;
-use super::columns::unreadable_reason;
 use super::order::split_files;
 use super::rows::{RowKey, SmallFiles};
 use crate::app::Message;
@@ -84,7 +83,7 @@ pub fn contents(results: &Results, key: RowKey, home: Option<&Path>, now: i64) -
             _ if node.error().is_some() => {
                 let class = node.error().map(|e| e.class).unwrap_or(ErrorClass::Other);
                 warning = true;
-                details.push(format!("Couldn't read: {}", unreadable_reason(class)));
+                details.push(format!("Couldn't read: {}", super::errors::reason(class)));
                 if class == ErrorClass::PrivacyBlocked && platform::PRIVACY_SETTINGS_URL.is_some() {
                     actions.push(Action::PrivacySettings);
                 }
@@ -274,7 +273,7 @@ mod tests {
         assert!(
             secret
                 .details
-                .starts_with("Couldn't read: macOS privacy protection")
+                .starts_with("Couldn't read: Protected by macOS privacy settings")
         );
         assert_eq!(
             secret.actions.contains(&Action::PrivacySettings),
