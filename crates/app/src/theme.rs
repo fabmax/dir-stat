@@ -2,10 +2,13 @@
 //!
 //! `App::theme` returns `None`, so iced picks the built-in Light or Dark theme and follows the
 //! OS live. The built-in palettes differ from our tokens, so every style reads `tokens(theme)`.
+//!
+//! The tokens and the type scale are the complete UX §11 set; later views use the rest.
+#![allow(dead_code)]
 
 use iced::font::Font;
-use iced::widget::{container, text};
-use iced::{Border, Color, Theme, color};
+use iced::widget::{button, container, progress_bar, text};
+use iced::{Background, Border, Color, Theme, color};
 
 use crate::fonts;
 
@@ -97,40 +100,6 @@ pub const DARK: Tokens = Tokens {
     shadow: color!(0x000000, 0.50),
 };
 
-impl Tokens {
-    /// Every token with its UX §11.2 name, for the specimen screen.
-    pub fn named(&self) -> [(&'static str, Color); 26] {
-        [
-            ("bg.window", self.bg_window),
-            ("bg.surface", self.bg_surface),
-            ("bg.raised", self.bg_raised),
-            ("bg.hover", self.bg_hover),
-            ("bg.selected", self.bg_selected),
-            ("bg.selected.unfocused", self.bg_selected_unfocused),
-            ("border.hairline", self.border_hairline),
-            ("border.strong", self.border_strong),
-            ("text.primary", self.text_primary),
-            ("text.secondary", self.text_secondary),
-            ("text.muted", self.text_muted),
-            ("accent", self.accent),
-            ("accent.text", self.accent_text),
-            ("accent.fill", self.accent_fill),
-            ("accent.fill.hover", self.accent_fill_hover),
-            ("accent.fill.pressed", self.accent_fill_pressed),
-            ("bar.track", self.bar_track),
-            ("meter.track", self.meter_track),
-            ("status.good", self.status_good),
-            ("status.warning", self.status_warning),
-            ("status.critical", self.status_critical),
-            ("chip.good", self.chip_good),
-            ("chip.warning", self.chip_warning),
-            ("chip.critical", self.chip_critical),
-            ("scrim", self.scrim),
-            ("shadow", self.shadow),
-        ]
-    }
-}
-
 pub fn tokens(theme: &Theme) -> &'static Tokens {
     if theme.extended_palette().is_dark {
         &DARK
@@ -199,8 +168,55 @@ pub fn text_muted(theme: &Theme) -> text::Style {
     }
 }
 
-/// A surface panel with a hairline border (radius 8, UX §11.5).
-pub fn card(theme: &Theme) -> container::Style {
+pub fn text_primary(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(tokens(theme).text_primary),
+    }
+}
+
+pub fn text_accent(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(tokens(theme).accent),
+    }
+}
+
+pub fn text_accent_alpha(theme: &Theme, alpha: f32) -> text::Style {
+    text::Style {
+        color: Some(tokens(theme).accent.scale_alpha(alpha)),
+    }
+}
+
+pub fn text_good(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(tokens(theme).status_good),
+    }
+}
+
+pub fn text_critical(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(tokens(theme).status_critical),
+    }
+}
+
+/// The tree and other panes.
+pub fn surface(theme: &Theme) -> container::Style {
+    let tokens = tokens(theme);
+    container::Style {
+        background: Some(tokens.bg_surface.into()),
+        text_color: Some(tokens.text_primary),
+        ..container::Style::default()
+    }
+}
+
+/// A hairline rule between bars.
+pub fn hairline(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(tokens(theme).border_hairline.into()),
+        ..container::Style::default()
+    }
+}
+
+pub fn activity_field(theme: &Theme) -> container::Style {
     let tokens = tokens(theme);
     container::Style {
         background: Some(tokens.bg_surface.into()),
@@ -211,5 +227,144 @@ pub fn card(theme: &Theme) -> container::Style {
         },
         text_color: Some(tokens.text_primary),
         ..container::Style::default()
+    }
+}
+
+pub fn accent_fill(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(tokens(theme).accent.into()),
+        ..container::Style::default()
+    }
+}
+
+/// The error banner on the start screen.
+pub fn banner(theme: &Theme) -> container::Style {
+    let tokens = tokens(theme);
+    container::Style {
+        background: Some(tokens.chip_critical.into()),
+        border: Border {
+            color: tokens.status_critical.scale_alpha(0.4),
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        text_color: Some(tokens.text_primary),
+        ..container::Style::default()
+    }
+}
+
+/// "Drop to scan": a 2 px accent frame over the whole window.
+pub fn drop_overlay(theme: &Theme) -> container::Style {
+    let tokens = tokens(theme);
+    container::Style {
+        background: Some(tokens.scrim.scale_alpha(0.35).into()),
+        border: Border {
+            color: tokens.accent,
+            width: 2.0,
+            radius: 0.0.into(),
+        },
+        text_color: Some(tokens.text_primary),
+        ..container::Style::default()
+    }
+}
+
+pub fn raised(theme: &Theme) -> container::Style {
+    let tokens = tokens(theme);
+    container::Style {
+        background: Some(tokens.bg_raised.into()),
+        border: Border {
+            color: tokens.border_hairline,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        text_color: Some(tokens.text_primary),
+        ..container::Style::default()
+    }
+}
+
+/// A start-screen location card: the whole card is the button (UX §4).
+pub fn card_button(theme: &Theme, status: button::Status, focused: bool) -> button::Style {
+    let tokens = tokens(theme);
+    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    let border = if focused {
+        Border {
+            color: tokens.accent,
+            width: 2.0,
+            radius: 8.0.into(),
+        }
+    } else {
+        Border {
+            color: if hovered {
+                tokens.border_strong
+            } else {
+                tokens.border_hairline
+            },
+            width: 1.0,
+            radius: 8.0.into(),
+        }
+    };
+    button::Style {
+        background: Some(Background::Color(if hovered {
+            tokens.bg_hover
+        } else {
+            tokens.bg_surface
+        })),
+        text_color: tokens.text_primary,
+        border,
+        ..button::Style::default()
+    }
+}
+
+pub fn secondary_button(theme: &Theme, status: button::Status) -> button::Style {
+    let tokens = tokens(theme);
+    let background = match status {
+        button::Status::Hovered => tokens.bg_hover,
+        button::Status::Pressed => tokens.bg_selected_unfocused,
+        _ => tokens.bg_raised,
+    };
+    button::Style {
+        background: Some(background.into()),
+        text_color: if status == button::Status::Disabled {
+            tokens.text_muted
+        } else {
+            tokens.text_primary
+        },
+        border: Border {
+            color: tokens.border_strong,
+            width: 1.0,
+            radius: 6.0.into(),
+        },
+        ..button::Style::default()
+    }
+}
+
+/// A text link ("Open Privacy Settings").
+pub fn link_button(theme: &Theme, status: button::Status) -> button::Style {
+    let tokens = tokens(theme);
+    button::Style {
+        background: None,
+        text_color: if status == button::Status::Hovered {
+            tokens.accent
+        } else {
+            tokens.accent_text
+        },
+        ..button::Style::default()
+    }
+}
+
+/// The capacity meter on volume cards (UX §11.6).
+pub fn meter(theme: &Theme, critical: bool) -> progress_bar::Style {
+    let tokens = tokens(theme);
+    progress_bar::Style {
+        background: tokens.meter_track.into(),
+        bar: if critical {
+            tokens.status_critical
+        } else {
+            tokens.accent
+        }
+        .into(),
+        border: Border {
+            radius: 3.0.into(),
+            ..Border::default()
+        },
     }
 }

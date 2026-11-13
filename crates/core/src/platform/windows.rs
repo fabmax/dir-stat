@@ -41,3 +41,12 @@ pub fn entry_meta(m: &std::fs::Metadata) -> EntryMeta {
 pub fn mounts() -> Vec<Mount> {
     Vec::new()
 }
+
+pub fn system_disk_name() -> String {
+    let drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into());
+    format!("Local Disk ({drive})")
+}
+
+pub fn full_disk_access() -> Option<bool> {
+    None
+}

@@ -191,6 +191,29 @@ pub fn mounts() -> Vec<Mount> {
     imp::mounts()
 }
 
+pub fn home_dir() -> Option<PathBuf> {
+    dirs::home_dir()
+}
+
+/// What users call the system disk: "Macintosh HD" (the `/Volumes/<name> -> /` symlink),
+/// "Computer" on Linux, "Local Disk (C:)" on Windows.
+pub fn system_disk_name() -> String {
+    imp::system_disk_name()
+}
+
+/// macOS: whether dir-stat has Full Disk Access (it can list the TCC folder). `None`
+/// elsewhere, where there is no such permission.
+pub fn full_disk_access() -> Option<bool> {
+    imp::full_disk_access()
+}
+
+/// The Privacy & Security ▸ Full Disk Access pane (macOS 13+, D6).
+pub const PRIVACY_SETTINGS_URL: Option<&str> = if cfg!(target_os = "macos") {
+    Some("x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles")
+} else {
+    None
+};
+
 /// The filesystem type of the mount containing `path` (longest matching mount point).
 pub fn fs_type_of(path: &Path, mounts: &[Mount]) -> String {
     mounts

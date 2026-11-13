@@ -2,8 +2,8 @@
 //!
 //! - `DIRSTAT_SCREENSHOT=<file.png>` (+ `DIRSTAT_SCREENSHOT_AFTER_MS`, default 1500): take one
 //!   screenshot and exit.
-//! - `DIRSTAT_SCRIPT="wait:1500;shot:a.png;wait:300;shot:b.png"`: run the steps, then exit.
-//!   Later milestones add `key:`, `path:` and `click:` steps.
+//! - `DIRSTAT_SCRIPT="path:/tmp;wait:1500;key:Stop;shot:a.png"`: run the steps, then exit.
+//!   `path:<dir>` scans a folder, `key:<KeyAction>` presses a shortcut by its action name.
 //!
 //! `ICED_THEME=Light|Dark` is read by iced itself and forces the theme.
 
@@ -11,10 +11,14 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use crate::keys::KeyAction;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
     Wait(Duration),
     Shot(PathBuf),
+    Path(PathBuf),
+    Key(KeyAction),
 }
 
 /// What the app should do on this tick.
@@ -22,6 +26,8 @@ pub enum Step {
 pub enum Due {
     Nothing,
     Shot(PathBuf),
+    Path(PathBuf),
+    Key(KeyAction),
     Done,
 }
 
@@ -69,6 +75,8 @@ impl Script {
                     self.awaiting_shot = true;
                     return Due::Shot(target);
                 }
+                Some(Step::Path(path)) => return Due::Path(path),
+                Some(Step::Key(action)) => return Due::Key(action),
             }
         }
         Due::Nothing
@@ -88,8 +96,12 @@ pub fn parse(spec: &str) -> Result<Vec<Step>, String> {
         .map(|step| match step.split_once(':') {
             Some(("wait", ms)) => parse_ms(ms).map(Step::Wait),
             Some(("shot", path)) if !path.is_empty() => Ok(Step::Shot(path.into())),
+            Some(("path", path)) if !path.is_empty() => Ok(Step::Path(path.into())),
+            Some(("key", name)) => KeyAction::from_name(name)
+                .map(Step::Key)
+                .ok_or_else(|| format!("unknown key action {name:?}")),
             _ => Err(format!(
-                "unsupported script step {step:?} (supported: wait:<ms>, shot:<file.png>)"
+                "unsupported script step {step:?} (supported: wait:<ms>, shot:<file.png>, path:<dir>, key:<action>)"
             )),
         })
         .collect()
@@ -138,7 +150,12 @@ mod tests {
                 Step::Wait(Duration::ZERO)
             ]
         );
-        assert!(parse("key:Down").is_err());
+        assert_eq!(
+            parse("path:/tmp;key:Stop").unwrap(),
+            vec![Step::Path("/tmp".into()), Step::Key(KeyAction::Stop)]
+        );
+        assert!(parse("key:Sideways").is_err());
+        assert!(parse("click:x").is_err());
         assert!(parse("wait:soon").is_err());
         assert!(parse("shot:").is_err());
     }

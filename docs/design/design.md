@@ -1548,6 +1548,13 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
 - The activity field (counts, bytes, rate EMA, elapsed, current path and "Waiting on …", determinate bar or indeterminate sweep, Stop, complete and stopped states).
 - A *temporary* minimal tree list (top-level children only, unsorted) so that progress can be seen.
 - *Accept:* `dir-stat ~/.cargo` shows a live activity field and completes with the same total as `du -skx`; Stop on `~` shows "Scan stopped" and "≥" within ~0.1 s; the app-level tests for Stop (including "`Finished` never arrives"), `Failed` and stale ids pass; a screenshot of the start screen matches UX §4; a nonexistent CLI path returns to the start screen with the banner.
+- *Done 2026-11-13.* `dir-stat ~/.cargo` completes with 2.14 GB / 83,324 items (= `du -skx`); Stop shows "Scan stopped · ≥ …" in the screenshot taken 100 ms after the key; start screen, bad-path banner, scanning, stopped and complete states captured in light and dark. Notes:
+  - Stop was checked on `~/dev`, not `~`: scanning the home folder from the terminal raises macOS privacy prompts.
+  - Recent locations are recorded in prefs (`Prefs::add_recent`) but shown on the start screen only in M11, with the rest of recents.
+  - "Checking…" for slow volume cards is not needed yet: the macOS mount table is cached (`MNT_NOWAIT`) and Linux statvfs runs only for local block filesystems.
+  - Platform action errors (opening Privacy Settings) go to stderr until toasts exist.
+  - New Scan while scanning drops the scan without asking; the confirmation comes with M10.
+  - The temporary list shows the root's children unsorted (as planned), at most 500.
 
 **M5 — Tree view**
 - `rows.rs` virtualization with the layout-driven viewport and anchoring on every rebuild, `columns.rs` row anatomy (disclosure, name, size, share bar, %, items, per-row states and pulsing dot, "≥"/"—", tooltips), header sort.

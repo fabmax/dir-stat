@@ -85,3 +85,19 @@ fn mount_from_statfs(s: &libc::statfs) -> Mount {
         }),
     }
 }
+
+pub fn system_disk_name() -> String {
+    let named_root = std::fs::read_dir("/Volumes").ok().and_then(|entries| {
+        entries.flatten().find_map(|e| {
+            let target = std::fs::read_link(e.path()).ok()?;
+            (target == std::path::Path::new("/"))
+                .then(|| e.file_name().to_string_lossy().into_owned())
+        })
+    });
+    named_root.unwrap_or_else(|| "Macintosh HD".into())
+}
+
+pub fn full_disk_access() -> Option<bool> {
+    // Listing this folder needs Full Disk Access; it exists on every macOS.
+    Some(std::fs::read_dir("/Library/Application Support/com.apple.TCC").is_ok())
+}

@@ -22,6 +22,7 @@ dirstat-core = { path = "../core" }
 iced = { version = "0.14", features = ["tokio"] }
 tokio = { version = "1", features = ["rt"] }
 rfd = "0.17"
+dirs = "6"
 opener = { version = "0.9", features = ["reveal"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

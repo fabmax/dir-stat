@@ -1,5 +1,9 @@
 //! Display formatting for sizes, counts, percentages and times (UX §12).
 //! Units are decimal (1 kB = 1,000 B); separators are en-US.
+//!
+//! The whole UX §12 set lives here, tested together; some formats are first used by the views
+//! of later milestones.
+#![allow(dead_code)]
 
 use std::time::Duration;
 

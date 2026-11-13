@@ -16,3 +16,11 @@ pub fn entry_meta(m: &std::fs::Metadata) -> EntryMeta {
 pub fn mounts() -> Vec<Mount> {
     Vec::new()
 }
+
+pub fn system_disk_name() -> String {
+    "Computer".into()
+}
+
+pub fn full_disk_access() -> Option<bool> {
+    None
+}
