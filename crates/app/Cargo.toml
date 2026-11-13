@@ -1,0 +1,31 @@
+[package]
+name = "dir-stat"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "dir-stat"
+path = "src/main.rs"
+
+[features]
+# iced devtools.
+debug = ["iced/debug"]
+# Visual-verification harness: DIRSTAT_SCREENSHOT, DIRSTAT_SCRIPT (design §2.2).
+screenshot = ["dep:png"]
+
+[dependencies]
+dirstat-core = { path = "../core" }
+# Default features stay on. `tokio` provides time::every and the executor.
+iced = { version = "0.14", features = ["tokio"] }
+tokio = { version = "1", features = ["rt"] }
+rfd = "0.17"
+opener = { version = "0.9", features = ["reveal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+png = { version = "0.18", optional = true }
+
+[dev-dependencies]
+dirstat-core = { path = "../core", features = ["test-util"] }

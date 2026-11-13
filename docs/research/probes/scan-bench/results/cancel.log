@@ -1,0 +1,6 @@
+cancel dir=/Users/maximilian.thiele/dev after_ms=100 cancelled=true listed=2323 to_finished_ms=9.67 to_joined_ms=9.74
+cancel dir=/Users/maximilian.thiele/dev after_ms=1000 cancelled=true listed=23505 to_finished_ms=99.38 to_joined_ms=99.47
+cancel dir=/System/Library after_ms=100 cancelled=true listed=4494 to_finished_ms=8.53 to_joined_ms=8.61
+cancel dir=/System/Library after_ms=1000 cancelled=true listed=59379 to_finished_ms=0.79 to_joined_ms=0.83
+cancel dir=/Users/maximilian.thiele/.rustup after_ms=100 cancelled=true listed=2440 to_finished_ms=21.05 to_joined_ms=21.10
+cancel dir=/Users/maximilian.thiele/.rustup after_ms=1000 cancelled=true listed=9114 to_finished_ms=15.91 to_joined_ms=15.98

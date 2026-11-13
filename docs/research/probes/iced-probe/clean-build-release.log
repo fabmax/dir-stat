@@ -1,0 +1,5 @@
+   Compiling iced v0.14.0
+   Compiling iced-probe v0.1.0 (/private/tmp/dirstat-work/probes/iced-probe)
+    Finished `release` profile [optimized] target(s) in 30.76s
+cargo build --release 2>&1  219.58s user 13.35s system 755% cpu 30.824 total
+tail -3  0.00s user 0.00s system 0% cpu 30.824 total

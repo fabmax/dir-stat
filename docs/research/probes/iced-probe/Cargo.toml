@@ -1,0 +1,130 @@
+[package]
+name = "iced-probe"
+version = "0.1.0"
+edition = "2024"
+# iced 0.14.0 declares rust-version = "1.88" and edition 2024
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+# Default features (wgpu, tiny-skia, crisp, web-colors, thread-pool,
+# linux-theme-detection, x11, wayland) are kept on purpose.
+#   tokio  -> futures executor = tokio multi-thread runtime; required for iced::time::every
+#   canvas -> iced::widget::canvas (treemap / bar visualisation)
+#   lazy   -> iced::widget::lazy (only probed here; optional for the real app)
+iced = { version = "0.14", features = ["tokio", "canvas", "lazy"] }
+# Native folder picker. Default features (xdg-portal + wayland) are fine for Linux.
+rfd = "0.17"
+# `reveal` feature is REQUIRED for opener::reveal (Show in Finder / file manager).
+opener = { version = "0.9", features = ["reveal"] }
+# Move to Trash / Recycle Bin.
+trash = "5"
+# Only for tokio::task::spawn_blocking inside Task::perform (iced already pulls tokio in).
+tokio = { version = "1", features = ["rt", "time"] }
+
+# Probe-only: encode iced window screenshots to PNG for visual verification.
+png = "0.18"
+
+[profile.dev]
+# Make debug builds usable for a GUI that walks thousands of files.
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[dev-dependencies]
+cosmic-text = "0.15"
+
+[features]
+# Enables the expected-to-FAIL compile tests in negative/ (see run-negative.sh)
+negative = []
+
+[[example]]
+name = "neg_application_title_first"
+path = "negative/neg_application_title_first.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_button_style_no_snap"
+path = "negative/neg_button_style_no_snap.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_canvas_text_old_fields"
+path = "negative/neg_canvas_text_old_fields.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_checkbox_two_args"
+path = "negative/neg_checkbox_two_args.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_horizontal_rule"
+path = "negative/neg_horizontal_rule.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_horizontal_space"
+path = "negative/neg_horizontal_space.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_keyboard_on_key_press"
+path = "negative/neg_keyboard_on_key_press.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_lazy_borrows_state"
+path = "negative/neg_lazy_borrows_state.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_listen_with_capture"
+path = "negative/neg_listen_with_capture.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_old_operations"
+path = "negative/neg_old_operations.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_old_widget_ids"
+path = "negative/neg_old_widget_ids.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_padding_four"
+path = "negative/neg_padding_four.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_progress_bar_height"
+path = "negative/neg_progress_bar_height.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_push_maybe"
+path = "negative/neg_push_maybe.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_run_with_capturing_closure"
+path = "negative/neg_run_with_capturing_closure.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_run_with_impl_trait_capture"
+path = "negative/neg_run_with_impl_trait_capture.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_space_with_width"
+path = "negative/neg_space_with_width.rs"
+required-features = ["negative"]
+
+[[example]]
+name = "neg_subscription_map_capture"
+path = "negative/neg_subscription_map_capture.rs"
+required-features = ["negative"]

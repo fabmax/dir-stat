@@ -1,0 +1,11 @@
+[package]
+name = "cleanup-catalog-proto"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Prototype of dir-stat's cleanup-suggestion catalog and its streaming matcher (no dependencies)."
+
+[dependencies]
+
+[[example]]
+name = "catalog_md"

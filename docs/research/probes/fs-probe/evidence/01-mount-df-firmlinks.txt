@@ -1,0 +1,60 @@
+/dev/disk3s3s1 on / (apfs, sealed, local, read-only, journaled)
+devfs on /dev (devfs, local, nobrowse)
+/dev/disk3s6 on /System/Volumes/VM (apfs, local, noexec, journaled, noatime, nobrowse)
+/dev/disk3s4 on /System/Volumes/Preboot (apfs, local, journaled, nobrowse)
+/dev/disk3s2 on /System/Volumes/Update (apfs, local, journaled, nobrowse)
+/dev/disk1s2 on /System/Volumes/xarts (apfs, local, noexec, journaled, noatime, nobrowse)
+/dev/disk1s1 on /System/Volumes/iSCPreboot (apfs, local, journaled, nobrowse)
+/dev/disk1s3 on /System/Volumes/Hardware (apfs, local, journaled, nobrowse)
+/dev/disk3s1 on /System/Volumes/Data (apfs, local, journaled, nobrowse, protect, root data)
+map auto_home on /System/Volumes/Data/home (autofs, automounted, nobrowse)
+/dev/disk2s1 on /System/Volumes/Update/SFR/mnt1 (apfs, local, journaled, nobrowse)
+/dev/disk3s3 on /System/Volumes/Update/mnt1 (apfs, sealed, local, journaled, nobrowse)
+
+Filesystem     1024-blocks      Used Available Capacity iused      ifree %iused  Mounted on
+/dev/disk3s3s1   971350180  16112276 137226472    11%  458735 1372264720    0%   /
+devfs                  347       347         0   100%    1202          0  100%   /dev
+/dev/disk3s6     971350180        24 137226472     1%       0 1372264720    0%   /System/Volumes/VM
+/dev/disk3s4     971350180  14657308 137226472    10%    1309 1372264720    0%   /System/Volumes/Preboot
+/dev/disk3s2     971350180   1000692 137226472     1%     495 1372264720    0%   /System/Volumes/Update
+/dev/disk1s2        512000      6164    491820     2%       1    4918200    0%   /System/Volumes/xarts
+/dev/disk1s1        512000      5960    491820     2%      36    4918200    0%   /System/Volumes/iSCPreboot
+/dev/disk1s3        512000      3196    491820     1%      88    4918200    0%   /System/Volumes/Hardware
+/dev/disk3s1     971350180 799611796 137226472    86% 7410036 1372264720    1%   /System/Volumes/Data
+map auto_home            0         0         0   100%       0          0     -   /System/Volumes/Data/home
+/dev/disk2s1       5242836   2495236   2725160    48%      70   27251600    0%   /System/Volumes/Update/SFR/mnt1
+/dev/disk3s3     971350180  16112276 137226472    11%  458732 1372264720    0%   /System/Volumes/Update/mnt1
+
+Filesystem     512-blocks       Used Available Capacity iused      ifree %iused  Mounted on
+/dev/disk3s3s1 1942700360   32224552 274452944    11%  458735 1372264720    0%   /
+devfs                 694        694         0   100%    1202          0  100%   /dev
+/dev/disk3s6   1942700360         48 274452944     1%       0 1372264720    0%   /System/Volumes/VM
+/dev/disk3s4   1942700360   29314616 274452944    10%    1309 1372264720    0%   /System/Volumes/Preboot
+/dev/disk3s2   1942700360    2001384 274452944     1%     495 1372264720    0%   /System/Volumes/Update
+/dev/disk1s2      1024000      12328    983640     2%       1    4918200    0%   /System/Volumes/xarts
+/dev/disk1s1      1024000      11920    983640     2%      36    4918200    0%   /System/Volumes/iSCPreboot
+/dev/disk1s3      1024000       6392    983640     1%      88    4918200    0%   /System/Volumes/Hardware
+/dev/disk3s1   1942700360 1599223592 274452944    86% 7410036 1372264720    1%   /System/Volumes/Data
+map auto_home           0          0         0   100%       0          0     -   /System/Volumes/Data/home
+/dev/disk2s1     10485672    4990472   5450320    48%      70   27251600    0%   /System/Volumes/Update/SFR/mnt1
+/dev/disk3s3   1942700360   32224552 274452944    11%  458732 1372264720    0%   /System/Volumes/Update/mnt1
+
+/AppleInternal	AppleInternal
+/Applications	Applications
+/Library	Library
+/System/Library/Caches	System/Library/Caches
+/System/Library/Assets	System/Library/Assets
+/System/Library/PreinstalledAssets	System/Library/PreinstalledAssets
+/System/Library/AssetsV2	System/Library/AssetsV2
+/System/Library/PreinstalledAssetsV2	System/Library/PreinstalledAssetsV2
+/System/Library/CoreServices/CoreTypes.bundle/Contents/Library	System/Library/CoreServices/CoreTypes.bundle/Contents/Library
+/System/Library/Speech	System/Library/Speech
+/Users	Users
+/Volumes	Volumes
+/cores	cores
+/opt	opt
+/pkg	pkg
+/private	private
+/usr/local	usr/local
+/usr/libexec/cups	usr/libexec/cups
+/usr/share/snmp	usr/share/snmp

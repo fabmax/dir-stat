@@ -1,0 +1,38 @@
+verify dir=/usr ours_kib=792180 du_kib=792180 du_after_kib=792180 diff_kib=0 MATCH du_warnings=1 our_errors=1 hl_dedup=2903
+  error sample: /usr/sbin/authserver (PermissionDenied, errno Some(13))
+  child /usr/bin ours_kib=82220 du_kib=82236 diff_kib=-16
+  child /usr/libexec ours_kib=227784 du_kib=235216 diff_kib=-7432
+  child /usr/sbin ours_kib=47600 du_kib=40156 diff_kib=7444
+  child /usr/share ours_kib=259412 du_kib=259408 diff_kib=4
+  children matched=3 mismatched=4
+verify dir=/usr ours_kib=792180 du_kib=792180 du_after_kib=792180 diff_kib=0 MATCH du_warnings=1 our_errors=1 hl_dedup=2903
+verify dir=/Applications ours_kib=17745336 du_kib=17745336 du_after_kib=17745336 diff_kib=0 MATCH du_warnings=0 our_errors=0 hl_dedup=0
+  children matched=38 mismatched=0
+verify dir=/Applications ours_kib=17745336 du_kib=17745336 du_after_kib=17745336 diff_kib=0 MATCH du_warnings=0 our_errors=0 hl_dedup=0
+verify dir=/opt/homebrew ours_kib=6194028 du_kib=6194028 du_after_kib=6194028 diff_kib=0 MATCH du_warnings=0 our_errors=0 hl_dedup=2
+  children matched=24 mismatched=0
+verify dir=/opt/homebrew ours_kib=6194028 du_kib=6194028 du_after_kib=6194028 diff_kib=0 MATCH du_warnings=0 our_errors=0 hl_dedup=2
+verify dir=/Users/maximilian.thiele/.cargo ours_kib=1926224 du_kib=1926224 du_after_kib=1926224 diff_kib=0 MATCH du_warnings=0 our_errors=0 hl_dedup=0
+  children matched=3 mismatched=0
+verify dir=/Users/maximilian.thiele/.cargo ours_kib=1926224 du_kib=1926224 du_after_kib=1926224 diff_kib=0 MATCH du_warnings=0 our_errors=0 hl_dedup=0
+verify dir=/Users/maximilian.thiele/.rustup ours_kib=10639920 du_kib=10639920 du_after_kib=10639920 diff_kib=0 MATCH du_warnings=0 our_errors=0 hl_dedup=0
+  children matched=4 mismatched=0
+verify dir=/Users/maximilian.thiele/.rustup ours_kib=10639920 du_kib=10639920 du_after_kib=10639920 diff_kib=0 MATCH du_warnings=0 our_errors=0 hl_dedup=0
+verify dir=/System/Library ours_kib=16248740 du_kib=16248740 du_after_kib=16248740 diff_kib=0 MATCH du_warnings=66 our_errors=66 hl_dedup=22447
+  error sample: /System/Library/Caches/com.apple.coresymbolicationd (PermissionDenied, errno Some(13))
+  error sample: /System/Library/DirectoryServices/DefaultLocalDB/Default (PermissionDenied, errno Some(13))
+  error sample: /System/Library/Templates/Data/private/var/agentx (PermissionDenied, errno Some(13))
+  error sample: /System/Library/Templates/Data/private/var/backups (PermissionDenied, errno Some(13))
+  error sample: /System/Library/Templates/Data/private/var/at/tmp (PermissionDenied, errno Some(13))
+  child /System/Library/Assistant ours_kib=247884 du_kib=247964 diff_kib=-80
+  child /System/Library/Snippets ours_kib=2924 du_kib=2852 diff_kib=72
+  child /System/Library/CoreServices ours_kib=598216 du_kib=598712 diff_kib=-496
+  child /System/Library/ScreenCaptureKitMetal ours_kib=580 du_kib=584 diff_kib=-4
+  child /System/Library/AppleMediaServices ours_kib=2004 du_kib=2008 diff_kib=-4
+  child /System/Library/Extensions ours_kib=457128 du_kib=457160 diff_kib=-32
+  child /System/Library/DuetExpertCenter ours_kib=2092 du_kib=2096 diff_kib=-4
+  child /System/Library/Components ours_kib=178132 du_kib=178288 diff_kib=-156
+  child /System/Library/PreferencesSyncBundles ours_kib=36 du_kib=40 diff_kib=-4
+  child /System/Library/Audio ours_kib=34008 du_kib=33880 diff_kib=128
+  children matched=122 mismatched=36
+verify dir=/System/Library ours_kib=16248740 du_kib=16248740 du_after_kib=16248740 diff_kib=0 MATCH du_warnings=66 our_errors=66 hl_dedup=22447

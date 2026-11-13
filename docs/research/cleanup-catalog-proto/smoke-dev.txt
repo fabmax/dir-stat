@@ -1,0 +1,416 @@
+=== /Users/maximilian.thiele/dev (1657 flagged dirs, 12.698023041s)
+        7  cargo-target
+        5  chromium-cache
+       46  gradle-build
+       21  gradle-project-cache
+       16  kotlin-project-dir
+        1  maven-target
+      224  node-modules
+        2  node-modules-pnpm
+        1  php-vendor
+       22  protected:app-bundles
+     1268  protected:test-fixtures
+       35  protected:vcs-data
+        2  python-venv
+        3  turbo-cache
+        4  zig-cache
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/kool/kool-physics/build
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/kool/kool-backend-wgpu4k/build
+  kotlin-project-dir [Safe]                     /Users/maximilian.thiele/dev/kool/.kotlin
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/kool/kool-editor/build
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/kool/kool-core/build
+  kotlin-project-dir [Safe]                     /Users/maximilian.thiele/dev/kool/buildSrc/.kotlin
+  gradle-project-cache [Safe]                   /Users/maximilian.thiele/dev/kool/buildSrc/.gradle
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/kool/buildSrc/build
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/kool/kool-editor-model/build
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/kool/kool-demo/build
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/kool/kool-physics-2d/build
+  gradle-project-cache [Safe]                   /Users/maximilian.thiele/dev/kool/.gradle
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/kool/build
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/kool/kool-compose-ui/build
+  node-modules-pnpm [Low]                       /Users/maximilian.thiele/dev/jcp-all/jcp-air/node_modules
+  turbo-cache [Safe]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/.turbo
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/cloud/frontend/node_modules
+  kotlin-project-dir [Safe]                     /Users/maximilian.thiele/dev/jcp-all/jcp-air/cloud/backend/.kotlin
+  gradle-project-cache [Safe]                   /Users/maximilian.thiele/dev/jcp-all/jcp-air/cloud/backend/.gradle
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/jcp-all/jcp-air/cloud/backend/build
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/lib/air-markdown/node_modules
+  turbo-cache [Safe]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/lib/air-markdown/.turbo
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/packages/nestjs-feature-flags/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/packages/notifications-client/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/packages/shared/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/packages/backend-client/node_modules
+  turbo-cache [Safe]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/packages/backend-client/.turbo
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/packages/nestjs-authn/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/packages/launcher-client/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/packages/eslint-config/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/packages/openapi-generator/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/packages/nestjs-otel/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/packages/gateway-client/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/packages/authn/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/packages/nestjs-kafka/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/apps/launcher/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/apps/scheduler/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/apps/backend/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/apps/notifications/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/jcp-all/jcp-air/automations/apps/gateway/node_modules
+  cargo-target [Safe]                           /Users/maximilian.thiele/dev/alacritty/target
+  cargo-target [Safe]                           /Users/maximilian.thiele/dev/alacritty/alacritty_vte/target
+  cargo-target [Safe]                           /Users/maximilian.thiele/dev/agent-tester/target
+  node-modules [Low]                            /Users/maximilian.thiele/dev/agent-tester/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/physx-js-webidl/types/node_modules
+  kotlin-project-dir [Safe]                     /Users/maximilian.thiele/dev/box2d-jni/box2d-jni/buildSrc/.kotlin
+  gradle-project-cache [Safe]                   /Users/maximilian.thiele/dev/box2d-jni/box2d-jni/buildSrc/.gradle
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/box2d-jni/box2d-jni/buildSrc/build
+  gradle-project-cache [Safe]                   /Users/maximilian.thiele/dev/box2d-jni/box2d-jni/.gradle
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/box2d-jni/box2d-jni/build
+  cargo-target [Safe]                           /Users/maximilian.thiele/dev/elizacp/symposium-acp/target
+  kotlin-project-dir [Safe]                     /Users/maximilian.thiele/dev/air-jcp-dependency-loader/.kotlin
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/air-jcp-dependency-loader/composeApp/build
+  gradle-project-cache [Safe]                   /Users/maximilian.thiele/dev/air-jcp-dependency-loader/.gradle
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/air-jcp-dependency-loader/build
+  zig-cache [Safe]                              /Users/maximilian.thiele/dev/DOOM-fire-zig/.zig-cache
+  zig-cache [Safe]                              /Users/maximilian.thiele/dev/DOOM-fire-zig/zig-out
+  zig-cache [Safe]                              /Users/maximilian.thiele/dev/testing/terminal-doom/.zig-cache
+  zig-cache [Safe]                              /Users/maximilian.thiele/dev/testing/terminal-doom/zig-out
+  python-venv [Low]                             /Users/maximilian.thiele/dev/testing/simple-py/venv
+  gradle-project-cache [Safe]                   /Users/maximilian.thiele/dev/testing/KotlinDebugger/.gradle
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/testing/KotlinDebugger/build
+  gradle-project-cache [Safe]                   /Users/maximilian.thiele/dev/testing/spring-petclinic/.gradle
+  node-modules [Low]                            /Users/maximilian.thiele/dev/testing/front-back/frontend/node_modules
+  kotlin-project-dir [Safe]                     /Users/maximilian.thiele/dev/testing/front-back/backend/.kotlin
+  gradle-project-cache [Safe]                   /Users/maximilian.thiele/dev/testing/front-back/backend/.gradle
+  gradle-build [Safe]                           /Users/maximilian.thiele/dev/testing/front-back/backend/build
+  node-modules [Low]                            /Users/maximilian.thiele/dev/testing/test-next/node_modules
+  node-modules [Low]                            /Users/maximilian.thiele/dev/air-log-viewer/node_modules
+  cargo-target [Safe]                           /Users/maximilian.thiele/dev/air-log-viewer/src-tauri/target
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/draft/lsp-client/core/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/draft/lang/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/draft/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/tools/mdn-doc-gen/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rplugin/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rplugin/ultimate/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rplugin/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/mobile-ide/kotlin-ocswift/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/mobile-ide/kotlin-ocswift/plugin/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/mobile-ide/libraries/apple-gradle-plugin/src/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/test/cases-cmake/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/test/cases-consoles/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/test/cases-ui/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/test/cases-ui/localization/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/test/framework-perforator/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/test/cases-unit/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/test/cases-perforator/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/test/cases/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/test/cases-non-bundled-plugins/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/test/cases-rdct-distributed/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/test/framework-integration/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/test/cases-qodana/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/plugins/cpp/scripts/test/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/plugins/android/test/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/plugins/android/test-unit/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/rider/build/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/python-pydantic/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/python-pydantic/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/aiTestsFramework/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/python-remote-interpreter/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/rust/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/rust/tests/plugin/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/rust/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/libraries-code-completion/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/junit5Tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/junit5Tests/plugin/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/junit5Tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/python-uml/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/python-uml/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/python-docker/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/python-docker/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/duplicates-detection-python/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/duplicates-detection-python/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/pyscript/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/python-javascript-tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/scientific-tables-py/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/scientific-tables-py/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/profiler/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/build/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/testSrc/com/jetbrains/python/fixtures
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/testSrc/com/jetbrains/django/fixtures
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/python/localization/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/gateway-core/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/rdct-tests/remoteDriverTests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/rdct-tests/ijLight/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/rdct-tests/remoteDev/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/rdct-tests/rdct-tests-patchEngine/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/rdct-tests/rdct-tests-patchEngine/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/rdct-tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/rdct-tests/pluginsWithTests/frontendPlugin/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/rdct-tests/pluginsWithTests/monolithPlugin/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/rdct-tests/pluginsWithTests/gatewayPlugin/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/rdct-tests/pluginsWithTests/riderFrontendPlugin/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/rdct-tests/pluginsWithTests/backendPlugin/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/rdct-tests/pluginsWithTests/riderBackendPlugin/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/rdct-tests/language-plugins/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/rd-platform/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/completion/frontend.split/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/remote-dev-worker/src/utils/recent_project_data/testdata
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/cwm-guest/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/cwm-common/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/remote-dev/cwm-host-unattended/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/recommenders-processing-plugin/java/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/recommenders-processing-plugin/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/microservices/microservices/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/microservices/microservices-backend/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/microservices/microservices-jvm/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm-experimental/aidiff/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm-experimental/aidiff/testResources/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/dotenv-ultimate/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/bigdatatools/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/bigdatatools/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/code-findings/core/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/code-findings/air-integration/eval/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/fileWatcher/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/NodeJS/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/RefactorX/test-data
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/hardcoded-passwords/go/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/hardcoded-passwords/core/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/hardcoded-passwords/python/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/hardcoded-passwords/js/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/hardcoded-passwords/jvm/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/hardcoded-passwords/php/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/hardcoded-passwords/properties/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/storybook/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/storybook/integrationTests/uiTests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/storybook/integrationTests/channelTests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/weblogic/jps-plugin/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/weblogic/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/embark/searcheverywhere/backend/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/git4idea/uiTests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/tasks-time-tracking/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/WebComponents/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/Docker/Docker-remote-run/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/Docker/Docker-remote-run/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/Docker/Docker-file/backend/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/Docker/Docker-file/backend/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/Docker/Docker-core/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/Docker/Docker-core/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/Docker/Tests/Docker-integration-tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/Docker/Docker-agent/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/Docker/Docker-gateway/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/Docker/Docker-gateway/json/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/Docker/Docker-gateway/json/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/Docker/Docker-gateway/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/Docker/Docker-compose/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/Docker/Docker-compose/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/embeddings/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/go/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/go/inlinePromptDetector/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/core/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/core/testsWithKotlinAndJava/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/core/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/searchEverywhere/embeddings/rider/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/searchEverywhere/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/chat/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/chat/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/python/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/python/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/js/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/codeGeneration/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/providers/ollama/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/rust/test/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/chat-input-language/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/agents/frontend/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/agents/frontend/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/agents/acp/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/agents/acp/viewTests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/java/embeddings/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/java/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/java/inlinePromptDetector/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/kotlin/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/php/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/php/inlinePromptDetector/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/php/mcp/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/codegeneration-benchmark/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/codegeneration-benchmark/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/codegeneration-benchmark/kt-tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/codegeneration-benchmark/kt-tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/cloud-enabled-tests/withJava/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/cloud-enabled-tests/apiTestsWithJava/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/starter/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/starter/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/cpp/testsClassic/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/cpp/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/cpp/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/xdebugger/intellij.ml.llm.context.runtime.jvm/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/devkit/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/ml.llm.tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/llm/sql/inlinePromptDetector/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/styled-components/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/aop-common/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/aop-common/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/LiveEdit/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/gitlab/gitlab-ultimate-features-backend/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/gitlab/gitlab-ultimate-features-shared/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/jvm-dfa-analysis/java/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/jvm-dfa-analysis/kotlin/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/coverage-mcp/platform/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/coverage-mcp/java/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/uml/java/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/uml/java/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/remote-run/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaFX/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaFX/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/tomcat/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/tomcat/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/teamcity-intellij/pipelines-yaml/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/teamcity-intellij/mcp/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/teamcity-intellij/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/qml/qml-common/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/qml/qml-common/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/webDeployment/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/webDeployment/envTests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/css/xmlSchemeGenerator/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/css/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/less/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/teamcity-config-preview/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/core/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/core/javaee-jps-plugin/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/web-services/rs-tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/web-services/ws-tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/web/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/jpa/jpa-jps-plugin/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/jpa/jpa-tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/jpa/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/jpa/jpa-ql/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/jsf/jsf-tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/extensions/testdata
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/reverse-engineering/test/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/reverse-engineering/test/testResources/testdata
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/cdi/cdi-kotlin-tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/cdi/cdi-java-tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/persistence/persistence-tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/data/jakarta-data-tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/ejb/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/bean-validation/bv-tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/jpabuddy/jpa-buddy-bootstrap/test/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/javaee/jpabuddy/jpa-buddy-kt/test/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/asp/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/asp/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/JavaScriptDebugger/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/JavaScriptDebugger/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/slim-lang/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/vagrant/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/shared-indexes/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/shared-indexes/integrationTests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/index-storages/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/stylus/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/workspace/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/workspace/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/freemarker/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/wechat-miniprogram/testData
+  node-modules [Low]                            /Users/maximilian.thiele/dev/ultimate/plugins/wechat-miniprogram/resources/typeDefinitions/node_modules
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/wechat-miniprogram/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/marketplace/statistics/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/marketplace/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/ideolog/textmate/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/ideolog/src/test/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/hunspell/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/hunspell/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/spy-js/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/hibernate-debugger/hibernate-debugger-tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/qt/qt-clion-tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/graalvm/graalvm/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/liquid/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/tbe/downloader/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/terminal/testsPerformance/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/tms/markdown/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/tms/markdown/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/tms/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/tms/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/federatedCompute/platform/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/EJS/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/kotlin/duplicate.scope/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/aspectj/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/aspectj/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/aspectj/tests-j2ee/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/aspectj/tests-j2ee/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/zkm/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/air/tests/integration/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/air/tests/plugin/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/air/tests/plugin/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/air/backend/mobile/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/air/backend/mobile/ahp/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/air/backend/agent-extensions/hooks/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/air/backend/agent-extensions/skills/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/air/backend/acp/runtime/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/air/backend/session/ui/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/air/backend/session/runtime/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/air/backend/session/projection/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/air/lightExtensions/test/fixtures
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/lua/aggregator/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/velocity/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/projectFragments/communityDetection/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/projectFragments/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/builtInBrowser/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/debugger-mcp/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/debugger-mcp/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/taint-analysis/php/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/webpack/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/webpack/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/idecli/tests/e2e/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/webSphere/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/vitejs/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/vitejs/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/terraform/local/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/core-local-impl/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/core-local-impl/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/code-engine/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/core-completion/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/go/nextEdits/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/python/nextEdits/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/python/local/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/python/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/css/less/local/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/css/postcss/local/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/css/local/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/css/sass/local/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/nextEdits/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/js/svelte/local/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/js/nextEdits/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/js/vue/local/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/js/local/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/js/ultimate/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/js/astro/local/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/java/nextEdits/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/java/local/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/java/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/html/local/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/kotlin/nextEdits/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/kotlin/local/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/local-impl/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/php/nextEdits/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/php/local/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/properties/cloud/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/jupyter/nextEdits/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/ruby/local/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/ruby/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/full-line/sql/cloud/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/react-buddy/testdata
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/dfa-analysis/rml/taint/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/dfa-analysis/rml/main/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/github/github-ultimate-features/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/figma/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/figma/integrationTests/uiTests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/figma/integrationTests/browserTests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/JavaScriptLanguage/tskotlin/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/JavaScriptLanguage/tests/ideaUltimateUnitTests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/JavaScriptLanguage/tests/unitTests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/JavaScriptLanguage/tests/unitTests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/JavaScriptLanguage/javascript.mcpServer/tests/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/JavaScriptLanguage/javascript.mcpServer/tests/testResources
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/JavaScriptLanguage/web-platform/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/JavaScriptLanguage/js-java/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/JavaScriptLanguage/javascript-duplicates-detection/testData
+  protected:test-fixtures                       /Users/maximilian.thiele/dev/ultimate/plugins/amper/compose/backend/tests/testData

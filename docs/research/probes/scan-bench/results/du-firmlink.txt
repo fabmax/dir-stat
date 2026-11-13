@@ -1,0 +1,3 @@
+17745336	/Applications
+17745336	/System/Volumes/Data/Applications
+35490672	total

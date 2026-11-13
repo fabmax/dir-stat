@@ -1,0 +1,12 @@
+┌─ Developer 96.1 GB ────────────────────┬─ Containers 31.0 GB ────────┐   ← level-1 header strip (18 px), full slot color + label
+│┌ Xcode 60.2 GB ───────┐┌ CoreSim ─────┐│┌ com.apple.x ─┐┌ com.y ────┐│   ← level-2 blocks: slot at 72%, label if it fits
+││                      ││ 30.0 GB      │││              ││           ││
+││                      ││              ││└──────────────┘└───────────┘│
+││                      ││              │├─ Caches 18.0 GB ────────────┤   ← each top-3 group keeps its own hue
+││                      ││              ││┌ Safari ─────┐┌ Spotify ───┐│
+│└──────────────────────┘└──────────────┘│└─────────────┘└────────────┘│
+├─ Application Support 15.2 GB ┬─ Logs ──┴─────────┬─ 12 more ─────────┤   ← all other top-level folders: neutral gray
+│                              │                   │                   │
+└──────────────────────────────┴───────────────────┴───────────────────┘
+ ■ Developer 96.1 GB  ■ Containers 31.0 GB  ■ Caches 18.0 GB  ■ Other (14) 37.1 GB
+   ↑ legend row (28 px): swatch + name + size; click selects the folder

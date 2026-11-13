@@ -1,0 +1,2 @@
+verify dir=/Users/maximilian.thiele/dev ours_kib=294716696 du_kib=294716696 du_after_kib=294716696 diff_kib=0 MATCH du_warnings=0 our_errors=0 hl_dedup=479362
+  children matched=30 mismatched=0

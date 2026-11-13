@@ -1,0 +1,1 @@
+sizes dir=/Users/maximilian.thiele/dev dirs=533523 files=3549233 alloc_mib=379524 avg_file_name=31.7 avg_dir_name=12.3 max_files_in_one_dir=215073 ge4k=3516040(99.06%files,100.0%bytes) ge64k=368961(10.40%files,93.6%bytes) ge256k=156247(4.40%files,86.5%bytes) ge1024k=46538(1.31%files,73.3%bytes) ge10240k=4096(0.12%files,40.4%bytes) ge102400k=217(0.01%files,18.1%bytes)

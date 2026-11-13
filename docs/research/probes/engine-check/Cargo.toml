@@ -1,0 +1,9 @@
+[package]
+name = "engine-check"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Compiles only the scanner engine modules of scan-bench (cfg-gating check for Linux/Windows)"
+
+[dependencies]
+libc = "0.2"

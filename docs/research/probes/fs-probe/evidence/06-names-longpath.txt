@@ -1,0 +1,11 @@
+names: create non-UTF-8 name -> Illegal byte sequence (os error 92) (Some("92=EILSEQ (Illegal byte sequence (os error 92))"))
+names: 'casetest.TXT' resolves to existing 'CaseTest.txt' ino=261107813 (case-insensitive)
+names: NFC lookup finds NFD-created file ino=261107814 (normalization-insensitive)
+names: readdir returns ["\"cafe\\u{301}.txt\" bytes=[63, 61, 66, 65, cc, 81, 2e, 74, 78, 74]"]
+names: 255-byte name OK
+names: 256-byte name -> File name too long (os error 63)
+names: 255 x 'ä' (510 bytes UTF-8) OK -> NAME_MAX counts UTF-16/chars, not bytes
+longpath: full path length = 1664 bytes (PATH_MAX=1024)
+longpath: std::fs::symlink_metadata(full) -> File name too long (os error 63)
+longpath: std::fs::read_dir(parent) -> File name too long (os error 63)
+longpath: fstatat(dirfd, "leaf.txt") -> OK

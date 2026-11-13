@@ -1,0 +1,20 @@
+[package]
+name = "scan-bench"
+version = "0.1.0"
+edition = "2024"
+description = "Prototype + benchmark of the dir-stat filesystem scanning engine"
+publish = false
+
+[dependencies]
+libc = "0.2"
+# Alternatives that are only used by the benchmark harness (src/alt.rs), not by the reference scanner:
+walkdir = "2"
+jwalk = "0.9"
+ignore = "0.4"
+dua-core = "6"
+
+[profile.release]
+opt-level = 3
+debug = false
+lto = "thin"
+codegen-units = 4

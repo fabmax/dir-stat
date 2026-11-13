@@ -1,0 +1,21 @@
+{"NSURLVolumeAvailableCapacityKey":140518760448,"NSURLVolumeAvailableCapacityForOpportunisticUsageKey":133857399156,"NSURLVolumeTotalCapacityKey":994662584320,"NSURLVolumeAvailableCapacityForImportantUsageKey":143883948032}
+Snapshots for volume group containing disk /:
+com.apple.os.update-590AC978635ADDE077FCB93DA7A78CB566EF2B8B41C23C84ADC84490C2F99B90
+com.apple.os.update-B7130477C05086C299B72D971EDB4F6801C2866048CEF16441C41E89545682065FE36DFCE88ECC60AC28F0D7C1699DCF
+com.apple.os.update-MSUPrepareUpdate
+Snapshots for disk3s3 (3 found)
+|
++-- 6C9A3638-2745-482A-B897-EF0453ED1184
+|   Name:        com.apple.os.update-590AC978635ADDE077FCB93DA7A78CB566EF2B8B41C23C84ADC84490C2F99B90
+|   XID:         10022259
+|   Purgeable:   No
+|
++-- 02E75F41-A842-4C27-940B-CBBBC241168D
+|   Name:        com.apple.os.update-B7130477C05086C299B72D971EDB4F6801C2866048CEF16441C41E89545682065FE36DFCE88ECC60AC28F0D7C1699DCF
+|   XID:         10392049
+|   Purgeable:   No
+|
++-- 314B74F9-77CC-460C-B322-1EA71062D63C
+    Name:        com.apple.os.update-MSUPrepareUpdate
+    XID:         10392061
+    Purgeable:   No

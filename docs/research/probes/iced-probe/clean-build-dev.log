@@ -1,0 +1,7 @@
+   Compiling iced_renderer v0.14.0
+   Compiling iced_widget v0.14.2
+   Compiling iced v0.14.0
+   Compiling iced-probe v0.1.0 (/private/tmp/dirstat-work/probes/iced-probe)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 37.45s
+cargo build 2>&1  361.21s user 16.69s system 1006% cpu 37.529 total
+tail -5  0.00s user 0.00s system 0% cpu 37.528 total

@@ -1,0 +1,24 @@
+[package]
+name = "dirstat-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Exposes test helpers (tree::testing::TreeBuilder, ScanHandle::inert()) to the app's tests.
+test-util = []
+
+[dependencies]
+dirs = "6"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Linux uses its own rename-only trash (design D14).
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+trash = "5"
+
+[dev-dependencies]
+tempfile = "3"
