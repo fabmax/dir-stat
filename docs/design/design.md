@@ -1520,6 +1520,13 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
 - `examples/scan.rs` feeding a `Tree`.
 - Integration tests from §10.2 (without catalog, git and trash).
 - *Accept:* tests pass, including boundaries, vanished, start failures and panic safety; `cargo run -p dirstat-core --release --example scan -- ~/.cargo` prints a total equal to `du -skx ~/.cargo` (KiB) with `root == Done` and `total == Summary`; cancel latency < 1 s; RSS of the example on `~/dev` (or the largest available tree) ≤ the §3.3 budget; the cross-target check compiles.
+- *Done 2026-11-13.* Results: `~/.cargo` 2,088,668 KiB and `~/dev` 223,252,460 KiB, both equal to `du -skx`; `~/dev` (531k dirs, 3.8M items) in 24 s with 131 MB peak RSS; cancel latency 4–6 ms on `~/dev`. Notes:
+  - No `scan/listing.rs`: the worker calls `std::fs::read_dir` directly (the backend abstraction only served the benchmark).
+  - The panic-safety test is a unit test (`scan/tests.rs`) using a `#[cfg(test)]` directory-name trigger; the vanished test deletes the root right after `Started`, which is deterministic.
+  - Below `/System/Volumes/Data`, mounts already under that path get no second alias.
+  - `Mount.dev` is `None` on macOS, and Linux `Mount.space` is `None` until the start screen needs it (M4).
+  - A Stop on `~` took 229 s to produce `Finished`: a worker sat in a blocked syscall (likely a privacy prompt). That is the §4.5 case: the UI must treat Stop as final at once.
+  - The Linux tests were only compile-checked (no container runtime was running).
 
 **M3 — Catalog and git verification (core)**
 - Port the prototype into `catalog/*`; add `section_for`, `display_section`, `FileMatch`, `RootContext`/`root_context`/`detached`, `Resolver::canonicalized`, `cleanup_hint`.

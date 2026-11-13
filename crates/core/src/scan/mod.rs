@@ -1,16 +1,89 @@
-//! The scanner's event protocol (design §3.1). The scanner itself arrives in M2.
+//! The scanner: a parallel, work-stealing directory walker that streams one listing per
+//! directory to the UI (design §4), and its event protocol (design §3.1).
+//!
+//! Guarantees the UI relies on:
+//! 1. `Started` comes first, `Finished` last; after `Failed` nothing follows.
+//! 2. Parent before child: a directory's listing arrives before any of its subdirectories'.
+//! 3. Exactly once: every subdirectory announced without a `skip` gets one listing, unless
+//!    the scan is cancelled.
+//! 4. Sizes like `du -skx`: `st_blocks * 512`, hard links once, symlinks never followed,
+//!    mount points and other filesystems below the root never entered.
 //!
 //! All event types are `Clone` because iced messages must be; they are never cloned on the
 //! hot path (`Summary.links` sits behind an `Arc` for that reason).
 
-use std::collections::HashMap;
+mod batcher;
+mod queue;
+#[cfg(test)]
+mod tests;
+mod worker;
+
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+pub use batcher::{Delivery, ScanHandle, UpdateSink, start};
+
 use crate::catalog::{self, RuleIdx};
+
+pub struct Options {
+    /// `available_parallelism().min(8)`: more threads are slower on macOS (SCAN §2.2).
+    pub threads: usize,
+    pub large_file_threshold: u64,
+    /// At most one UI update per interval.
+    pub batch_interval: Duration,
+    pub engine: Arc<catalog::Engine>,
+}
+
+impl Options {
+    pub fn new(engine: Arc<catalog::Engine>) -> Self {
+        Options {
+            threads: std::thread::available_parallelism()
+                .map_or(4, |n| n.get())
+                .min(8),
+            large_file_threshold: LARGE_FILE,
+            batch_interval: Duration::from_millis(50),
+            engine,
+        }
+    }
+}
+
+/// Where the scan stops: mount points below the root are never entered or stat'ed.
+#[derive(Clone, Debug)]
+pub enum Boundaries {
+    /// The mount table at scan start (design §4.7).
+    System,
+    /// Declared paths, for tests: fixture folders that act as mount points or excluded folders.
+    Fixed {
+        mounts: Vec<PathBuf>,
+        excluded: Vec<PathBuf>,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct ScanRequest {
+    /// As given; canonicalized on the scan thread.
+    pub root: PathBuf,
+    /// `None`: computed on the scan thread. `Some`: rescans and tests.
+    pub context: Option<catalog::RootContext>,
+    pub boundaries: Boundaries,
+    /// Subtree rescans: hard-linked inodes the rest of the tree already counts (D9).
+    pub counted_elsewhere: Option<Arc<HashSet<(u64, u64)>>>,
+}
+
+impl ScanRequest {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        ScanRequest {
+            root: root.into(),
+            context: None,
+            boundaries: Boundaries::System,
+            counted_elsewhere: None,
+        }
+    }
+}
 
 /// A directory in the tree. Ids are dense and allocated in blocks by the scanner: the
 /// subdirectories of one listing get consecutive ids starting at `DirListing::first_child`.
