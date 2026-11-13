@@ -1507,6 +1507,11 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
 - `tree/*`: `apply`, completion, totals and counters, `newest_mtime`, `candidates`, `errors`, path functions, the chunked arena, `mark_stopped`, trash accounting, `splice` with completion propagation, `compacted`, `counted_elsewhere`.
 - `tree::testing::TreeBuilder` (feature `test-util`): nested literals → `DirListing`s with correct id blocks, verdicts and markers.
 - *Accept:* the §10.1 tree tests, all built from synthetic listings; the cross-target check for Linux.
+- *Done 2026-11-13.* Deviations:
+  - The catalog prototype (`model`, `table`, `engine`) was copied into `catalog/` already, unchanged apart from two clippy fixes and `impl Default for Ctx`, so the tree uses the real `Verdict`/`RuleIdx`/`Ctx` types. The §5.5 additions stay in M3.
+  - `Node` stores `own_mtime` next to `newest_mtime`, so `splice` can recompute `newest_mtime` exactly. To stay within 176 bytes, both are kept in whole minutes (`i32`); `newest_mtime()` still returns seconds.
+  - Added `Tree::is_lower_bound(id)` (stopped and not `Done`) for the "≥" rendering.
+  - `trash::ContentsOutcome` and `TrashError` exist with what accounting needs; `TrashError::Refused` arrives with `safety` in M8. Open point for M8: `subtract_contents` doesn't flag the target's large files as `TRASHED`, because `ContentsOutcome` doesn't name trashed files.
 
 **M2 — Scanner**
 - `scan/*` ported from scan-bench (std backend, work stealing, batcher, `UpdateSink`), with the `scan-main` opener, `Started`/`Failed`, `catch_unwind` per job and poison-tolerant locks; catalog fields stubbed (`verdict = None`, `markers = 0`).
