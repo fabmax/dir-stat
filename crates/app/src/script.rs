@@ -24,6 +24,8 @@ pub enum Step {
     Expand(PathBuf),
     /// Press a named target: `errors`, `fda-not-now`.
     Click(String),
+    /// Reveal and select a folder, by path relative to the scan root.
+    Select(PathBuf),
 }
 
 /// What the app should do on this tick.
@@ -35,6 +37,7 @@ pub enum Due {
     Key(KeyAction),
     Expand(PathBuf),
     Click(String),
+    Select(PathBuf),
     Done,
 }
 
@@ -86,6 +89,7 @@ impl Script {
                 Some(Step::Key(action)) => return Due::Key(action),
                 Some(Step::Expand(rel)) => return Due::Expand(rel),
                 Some(Step::Click(name)) => return Due::Click(name),
+                Some(Step::Select(rel)) => return Due::Select(rel),
             }
         }
         Due::Nothing
@@ -108,11 +112,12 @@ pub fn parse(spec: &str) -> Result<Vec<Step>, String> {
             Some(("path", path)) if !path.is_empty() => Ok(Step::Path(path.into())),
             Some(("expand", rel)) if !rel.is_empty() => Ok(Step::Expand(rel.into())),
             Some(("click", name)) if !name.is_empty() => Ok(Step::Click(name.into())),
+            Some(("select", rel)) if !rel.is_empty() => Ok(Step::Select(rel.into())),
             Some(("key", name)) => KeyAction::from_name(name)
                 .map(Step::Key)
                 .ok_or_else(|| format!("unknown key action {name:?}")),
             _ => Err(format!(
-                "unsupported script step {step:?} (supported: wait:<ms>, shot:<file.png>, path:<dir>, key:<action>, expand:<rel>, click:<target>)"
+                "unsupported script step {step:?} (supported: wait:<ms>, shot:<file.png>, path:<dir>, key:<action>, expand:<rel>, click:<target>, select:<rel>)"
             )),
         })
         .collect()

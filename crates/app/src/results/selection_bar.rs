@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use dirstat_core::platform;
 use dirstat_core::scan::{ErrorClass, Skip};
-use dirstat_core::tree::{NodeState, Tree};
+use dirstat_core::tree::{FileFlags, NodeFlags, NodeState, Tree};
 use iced::widget::{Row, button, container, row, space, tooltip};
 use iced::{Center, Element, Fill};
 
@@ -32,6 +32,28 @@ pub enum Action {
     CopyPath,
     ScanVolume,
     PrivacySettings,
+    /// Move to Trash…; `Err` holds why it is disabled.
+    Trash(Result<(), &'static str>),
+}
+
+/// Whether the trash button works for a folder (G1, UX §5.5).
+fn folder_trash(tree: &Tree, id: dirstat_core::tree::NodeId) -> Result<(), &'static str> {
+    let node = tree.node(id);
+    let flags = |a: dirstat_core::tree::NodeId| tree.node(a).flags();
+    let busy = std::iter::once(id).chain(tree.ancestors(id)).any(|a| {
+        flags(a).contains(NodeFlags::TRASHED)
+            || flags(a).contains(NodeFlags::TRASH_PENDING)
+            || flags(a).contains(NodeFlags::RESCANNING)
+    });
+    if busy {
+        Err("Already in the Trash or being moved.")
+    } else if !node.is_done() {
+        Err("Available when this folder is fully scanned.")
+    } else if node.total().boundaries > 0 {
+        Err("This folder contains another volume.")
+    } else {
+        Ok(())
+    }
 }
 
 /// What the bar shows for one selection. Pure, so the per-type rules are tested.
@@ -98,12 +120,20 @@ pub fn contents(results: &Results, key: RowKey, home: Option<&Path>, now: i64) -
                 details.push(size);
                 details.push(format::plural(total.items, "item", "items"));
                 details.extend(modified(node.newest_mtime(), now));
+                actions.push(Action::Trash(folder_trash(tree, id)));
             }
         },
         RowKey::File(dir, index) => {
             let file = tree.node(dir).large_files().get(index as usize)?;
             details.push(format::size(file.alloc));
             details.extend(modified(file.mtime, now));
+            let gone = file.flags.contains(FileFlags::TRASHED)
+                || file.flags.contains(FileFlags::TRASH_PENDING);
+            actions.push(Action::Trash(if gone {
+                Err("Already in the Trash or being moved.")
+            } else {
+                Ok(())
+            }));
         }
         RowKey::SmallFile(dir, index) => {
             let SmallFiles::Loaded(files) = &results.view.open_aggregates.get(&dir)?.small else {
@@ -112,6 +142,13 @@ pub fn contents(results: &Results, key: RowKey, home: Option<&Path>, now: i64) -
             let file = files.get(index as usize)?;
             details.push(format::size(file.alloc));
             details.extend(modified(file.mtime, now));
+            let gone = file.flags.contains(FileFlags::TRASHED)
+                || file.flags.contains(FileFlags::TRASH_PENDING);
+            actions.push(Action::Trash(if gone {
+                Err("Already in the Trash or being moved.")
+            } else {
+                Ok(())
+            }));
         }
         RowKey::Aggregate(dir) | RowKey::MoreFiles(dir) | RowKey::Placeholder(dir) => {
             let split = split_files(tree.node(dir));
@@ -175,7 +212,17 @@ pub fn view<'a>(
                 );
             let mut buttons: Row<'a, Message> = row![].spacing(8);
             for action in c.actions {
+                let disabled = match action {
+                    Action::Trash(Err(why)) => Some(why),
+                    _ => None,
+                };
+                let trash_label = if cfg!(windows) {
+                    "Move to Recycle Bin…"
+                } else {
+                    "Move to Trash…"
+                };
                 let (full, short, message) = match action {
+                    Action::Trash(_) => (trash_label, "Trash…", Message::RequestTrash),
                     Action::Reveal => (REVEAL_LABEL, "Reveal", Message::RevealSelection),
                     Action::CopyPath => ("Copy Path", "Copy", Message::CopySelection),
                     Action::ScanVolume => ("Scan This Volume", "Scan", Message::ScanSelection),
@@ -189,11 +236,12 @@ pub fn view<'a>(
                 let b = button(theme::SMALL.with_font(fonts::MEDIUM).text(label))
                     .padding([4, 10])
                     .style(theme::secondary_button)
-                    .on_press(message);
-                buttons = buttons.push(if narrow {
+                    .on_press_maybe(disabled.is_none().then_some(message));
+                let tip_text = disabled.unwrap_or(full);
+                buttons = buttons.push(if narrow || disabled.is_some() {
                     Element::from(tooltip(
                         b,
-                        container(theme::SMALL.text(full))
+                        container(theme::SMALL.text(tip_text))
                             .padding([4, 8])
                             .style(theme::raised),
                         tooltip::Position::Top,
@@ -262,7 +310,10 @@ mod tests {
         let folder = contents(&r, RowKey::Dir(NodeId(1)), home, 1_000 + 2 * 86_400).unwrap();
         assert_eq!(folder.path, "~/r/docs");
         assert_eq!(folder.details, "3.00 MB · 3 items · modified 2 days ago");
-        assert_eq!(folder.actions, [Action::Reveal, Action::CopyPath]);
+        assert_eq!(
+            folder.actions,
+            [Action::Reveal, Action::CopyPath, Action::Trash(Ok(()))]
+        );
 
         let mount = contents(&r, RowKey::Dir(NodeId(2)), home, 0).unwrap();
         assert_eq!(mount.details, "Separate volume, not included");

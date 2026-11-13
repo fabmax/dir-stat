@@ -24,3 +24,7 @@ pub fn system_disk_name() -> String {
 pub fn full_disk_access() -> Option<bool> {
     None
 }
+
+pub fn is_read_only(_path: &std::path::Path) -> bool {
+    false
+}

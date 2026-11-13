@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant};
 
 use dirstat_core::scan::{ErrorClass, Skip};
-use dirstat_core::tree::{NodeFlags, NodeId, NodeState, Tree};
+use dirstat_core::tree::{FileFlags, NodeFlags, NodeId, NodeState, Tree};
 use iced::widget::{
     Column, Id, Space, container, hover, mouse_area, progress_bar, responsive, row, scrollable,
     space, text, tooltip,
@@ -238,19 +238,28 @@ fn row_view<'a>(
     ]
     .align_y(Center);
     let name_max = 520.0 - indent;
-    let name = theme::BODY
-        .text(widgets::truncate_end(
-            &cells.name,
-            name_max,
-            theme::BODY.size,
-        ))
-        .wrapping(text::Wrapping::None)
-        .style(move |t| tone_style(t, cells.name_tone));
+    let shown_name = widgets::truncate_end(&cells.name, name_max, theme::BODY.size);
+    let name: Element<'a, Message> = if cells.strike {
+        // `on_link_click(never)` fixes the otherwise uninferable link type.
+        iced::widget::rich_text([iced::widget::span(shown_name).strikethrough(true)])
+            .size(theme::BODY.size)
+            .font(fonts::INTER)
+            .wrapping(text::Wrapping::None)
+            .style(theme::text_muted)
+            .on_link_click(iced::never)
+            .into()
+    } else {
+        theme::BODY
+            .text(shown_name)
+            .wrapping(text::Wrapping::None)
+            .style(move |t| tone_style(t, cells.name_tone))
+            .into()
+    };
     let name: Element<'a, Message> = match &cells.name_tip {
         Some(tip) => tooltip(name, tip_box(tip.clone()), tooltip::Position::Bottom)
             .delay(TOOLTIP_DELAY)
             .into(),
-        None => name.into(),
+        None => name,
     };
     name_cell = name_cell.push(container(name).clip(true));
     if let Some(badge) = cells.badge {
@@ -398,9 +407,78 @@ pub struct Cells {
     pub share: Option<(f32, String)>,
     pub percent: String,
     pub items: String,
+    /// In the Trash: struck through until the next re-order.
+    pub strike: bool,
 }
 
+/// The cells of a row, including its trash state.
 pub fn cells_for(
+    tree: &Tree,
+    key: RowKey,
+    zoom: NodeId,
+    open_aggregates: &std::collections::HashMap<NodeId, OpenAggregate>,
+    now: Instant,
+    started: Instant,
+) -> Cells {
+    let mut cells = base_cells(tree, key, zoom, open_aggregates, now, started);
+    let (trashed, pending, outdated) =
+        match key {
+            RowKey::Dir(id) => {
+                let f = tree.node(id).flags();
+                (
+                    f.contains(NodeFlags::TRASHED),
+                    f.contains(NodeFlags::TRASH_PENDING),
+                    f.contains(NodeFlags::OUTDATED),
+                )
+            }
+            RowKey::File(dir, index) => tree.node(dir).large_files().get(index as usize).map_or(
+                (false, false, false),
+                |file| {
+                    (
+                        file.flags.contains(FileFlags::TRASHED),
+                        file.flags.contains(FileFlags::TRASH_PENDING),
+                        false,
+                    )
+                },
+            ),
+            RowKey::SmallFile(dir, index) => match open_aggregates.get(&dir).map(|o| &o.small) {
+                Some(SmallFiles::Loaded(files)) => {
+                    files
+                        .get(index as usize)
+                        .map_or((false, false, false), |file| {
+                            (
+                                file.flags.contains(FileFlags::TRASHED),
+                                file.flags.contains(FileFlags::TRASH_PENDING),
+                                false,
+                            )
+                        })
+                }
+                _ => (false, false, false),
+            },
+            _ => (false, false, false),
+        };
+    if trashed {
+        cells.strike = true;
+        cells.name_tone = Tone::Muted;
+        cells.size = "In Trash".into();
+        cells.size_tone = Tone::Muted;
+        cells.size_tip = None;
+        cells.share = None;
+        cells.percent.clear();
+        cells.items.clear();
+        cells.disclosure = None;
+        cells.marker = Marker::None;
+    } else if pending {
+        cells.size = "Moving to Trash…".into();
+        cells.size_tone = Tone::Muted;
+        cells.marker = Marker::Scanning(0.8);
+    } else if outdated {
+        cells.size_tip = Some("Rescan to update".into());
+    }
+    cells
+}
+
+fn base_cells(
     tree: &Tree,
     key: RowKey,
     zoom: NodeId,
@@ -426,6 +504,7 @@ pub fn cells_for(
         share: None,
         percent: String::new(),
         items: String::new(),
+        strike: false,
     };
     let share = |part: u64, parent: NodeId| {
         let whole = tree.node(parent).total().alloc;

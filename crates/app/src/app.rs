@@ -5,10 +5,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dirstat_core::catalog::{Engine, Resolver};
+use dirstat_core::git::{self, GitBinary, GitStatus};
 use dirstat_core::platform::{self, Mount};
+use dirstat_core::safety::Guards;
 use dirstat_core::scan::{Options, ScanRequest, StartError, Update};
 use dirstat_core::smallfiles::{self, SmallFile};
-use dirstat_core::tree::NodeId;
+use dirstat_core::trash::{SystemTrasher, TrashError, TrashJobId, TrashOutcome, Trasher};
+use dirstat_core::tree::{CandidateRef, NodeId};
 use dirstat_core::volumes::{self, CardKind, VolumeCard};
 use iced::widget::{
     button, center, column, container, mouse_area, operation, row, scrollable, space, stack,
@@ -22,6 +25,7 @@ use crate::prefs::{JsonPrefs, Prefs, PrefsStore};
 use crate::results::order::Column;
 use crate::results::rows::RowKey;
 use crate::results::scan_task::{self, ScanIdGen};
+use crate::results::trash::{self, Focus, Modal, TrashTarget};
 use crate::results::tree_view::Effect;
 use crate::results::{
     Results, ScanOutcome, StopOutcome, activity, columns, errors, nav, selection_bar,
@@ -42,6 +46,10 @@ pub struct Env {
     pub home: Option<PathBuf>,
     /// macOS: the terminal dir-stat was started from (it holds the privacy grants).
     pub terminal: Option<String>,
+    pub guards: Arc<Guards>,
+    pub trasher: Arc<dyn Trasher>,
+    /// `None`: no usable git; candidates in work trees read "Couldn't check with git".
+    pub git: Option<GitBinary>,
 }
 
 pub enum Screen {
@@ -61,6 +69,8 @@ pub struct App {
     toast: Option<Toast>,
     /// "Not Now" hides the Full Disk Access bar for the rest of the session.
     fda_dismissed: bool,
+    modal: Option<Modal>,
+    next_trash_job: u64,
     scan_ids: ScanIdGen,
     #[cfg(feature = "screenshot")]
     script: Option<crate::script::Script>,
@@ -103,6 +113,12 @@ pub enum Message {
     RevealSelection,
     CopySelection,
     ScanSelection,
+    // trash
+    RequestTrash,
+    ConfirmTrash,
+    CancelModal,
+    TrashFinished(TrashJobId, u32, Vec<TrashOutcome>),
+    GitChecked(scan_task::ScanId, Vec<(CandidateRef, GitStatus)>),
     // errors
     ToggleErrorsPopover,
     CopyErrorList,
@@ -137,6 +153,9 @@ impl App {
             home: platform::home_dir(),
             // The bundle id is set once dir-stat ships as an app bundle (M11).
             terminal: platform::launched_from_terminal(None),
+            guards: Arc::new(Guards::new()),
+            trasher: Arc::new(SystemTrasher),
+            git: git::find_git(),
         };
         let (app, task) = App::new(env, cli);
         #[cfg(feature = "screenshot")]
@@ -164,6 +183,8 @@ impl App {
             pointer_in_tree: false,
             toast: None,
             fda_dismissed: false,
+            modal: None,
+            next_trash_job: 0,
             scan_ids: ScanIdGen::default(),
             #[cfg(feature = "screenshot")]
             script: None,
@@ -245,7 +266,10 @@ impl App {
                     return self.start_scan(root);
                 }
             }
-            Message::Tick(now) => return self.tick(now),
+            Message::Tick(now) => {
+                let git = self.schedule_git();
+                return Task::batch([git, self.tick(now)]);
+            }
             Message::TreeScrolled(viewport) => {
                 if let Screen::Results(r) = &mut self.screen {
                     r.view.scrolled(
@@ -325,6 +349,33 @@ impl App {
                 }
             }
             Message::DismissFdaBar => self.fda_dismissed = true,
+            Message::RequestTrash => self.request_trash(),
+            Message::ConfirmTrash => return self.confirm_trash(),
+            Message::CancelModal => self.modal = None,
+            Message::TrashFinished(id, generation, outcomes) => {
+                if let Screen::Results(r) = &mut self.screen
+                    && let Some((text, sticky)) = r.trash_finished(
+                        id,
+                        generation,
+                        outcomes,
+                        self.env.home.as_deref(),
+                        Instant::now(),
+                    )
+                {
+                    self.toast = Some(if sticky {
+                        Toast::error(text)
+                    } else {
+                        Toast::info(text)
+                    });
+                }
+            }
+            Message::GitChecked(id, statuses) => {
+                if let Screen::Results(r) = &mut self.screen
+                    && r.scan_id == id
+                {
+                    r.candidates.finished(statuses);
+                }
+            }
             Message::SortBy(column) => {
                 if let Screen::Results(r) = &mut self.screen {
                     r.sort_by(column, Instant::now());
@@ -441,6 +492,35 @@ impl App {
         if let Screen::Results(r) = &mut self.screen {
             r.view.reorder.activity(Instant::now());
         }
+        // A dialog takes every key (UX §9): Esc cancels, Return picks the default button,
+        // Tab moves the focus, Space presses the focused button.
+        if let Some(Modal::Confirm { plan, focus }) = &mut self.modal {
+            return match action {
+                KeyAction::Escape => self.update(Message::CancelModal),
+                KeyAction::Enter if plan.default_is_trash => self.update(Message::ConfirmTrash),
+                KeyAction::Enter => self.update(Message::CancelModal),
+                KeyAction::Tab | KeyAction::ShiftTab => {
+                    *focus = if *focus == Focus::Cancel {
+                        Focus::Trash
+                    } else {
+                        Focus::Cancel
+                    };
+                    Task::none()
+                }
+                KeyAction::Space if *focus == Focus::Trash => self.update(Message::ConfirmTrash),
+                KeyAction::Space => self.update(Message::CancelModal),
+                _ => Task::none(),
+            };
+        }
+        if let Some(Modal::Refuse { .. }) = &self.modal {
+            if matches!(
+                action,
+                KeyAction::Escape | KeyAction::Enter | KeyAction::Space
+            ) {
+                self.modal = None;
+            }
+            return Task::none();
+        }
         if let Screen::Results(r) = &mut self.screen
             && r.errors_popover
         {
@@ -460,6 +540,7 @@ impl App {
             (Screen::Results(_), KeyAction::Escape | KeyAction::Stop) => self.stop(),
             (Screen::Results(_), KeyAction::NewScan) => self.show_start(None),
             (Screen::Results(_), KeyAction::RescanAll) => return self.update(Message::RescanAll),
+            (Screen::Results(_), KeyAction::Trash) => self.request_trash(),
             (Screen::Results(r), action) => {
                 let effect = r.key(action, Instant::now());
                 return self.apply(effect);
@@ -469,7 +550,7 @@ impl App {
     }
 
     fn tick(&mut self, now: Instant) -> Task<Message> {
-        let button_held = self.left_button_held;
+        let button_held = self.left_button_held || self.modal.is_some();
         if let Screen::Results(results) = &mut self.screen {
             results.tick(now, button_held);
         }
@@ -489,6 +570,13 @@ impl App {
                 }
                 Due::Path(path) => return self.start_scan(path),
                 Due::Key(action) => return self.key(action),
+                Due::Select(rel) => {
+                    if let Screen::Results(r) = &mut self.screen
+                        && let Some(id) = r.tree.find_path(&r.tree.root_path().join(&rel))
+                    {
+                        r.reveal_in_tree(id, now);
+                    }
+                }
                 Due::Click(name) => {
                     let message = match name.as_str() {
                         "errors" => Some(Message::ToggleErrorsPopover),
@@ -534,7 +622,7 @@ impl App {
             return true;
         }
         let toast_expires = self.toast.as_ref().is_some_and(|t| !t.sticky);
-        toast_expires || matches!(&self.screen, Screen::Results(r) if r.is_scanning())
+        toast_expires || matches!(&self.screen, Screen::Results(r) if r.busy())
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -593,7 +681,108 @@ impl App {
             }
             _ => None,
         };
-        stack![base].push(popover).push(overlay).push(toast).into()
+        let modal = self
+            .modal
+            .as_ref()
+            .map(|m| trash::modal_view(m, self.env.home.as_deref()));
+        stack![base]
+            .push(popover)
+            .push(overlay)
+            .push(toast)
+            .push(modal)
+            .into()
+    }
+
+    /// Plans the selected row and opens the confirmation (or refusal) dialog. Nothing moves
+    /// before ConfirmTrash.
+    fn request_trash(&mut self) {
+        let Screen::Results(r) = &self.screen else {
+            return;
+        };
+        let target = match r.view.selection {
+            Some(RowKey::Dir(id)) => TrashTarget::Dir(id),
+            Some(RowKey::File(dir, index)) => TrashTarget::File(dir, index),
+            Some(RowKey::SmallFile(dir, index)) => TrashTarget::SmallFile(dir, index),
+            Some(_) => {
+                self.toast = Some(Toast::info(
+                    "Select a folder or file to move it to the Trash.",
+                ));
+                return;
+            }
+            None => return,
+        };
+        let planned = trash::plan(
+            r,
+            &self.env.engine,
+            &self.env.guards,
+            target,
+            |c| r.candidates.state(c),
+            std::time::SystemTime::now(),
+        );
+        self.modal = Some(match planned {
+            Ok(plan) => {
+                let focus = if plan.default_is_trash {
+                    Focus::Trash
+                } else {
+                    Focus::Cancel
+                };
+                Modal::Confirm {
+                    plan: Box::new(plan),
+                    focus,
+                }
+            }
+            Err(refused) => Modal::Refuse {
+                title: refused.title,
+                message: refused.message,
+            },
+        });
+    }
+
+    /// Starts the next git check. At most one runs; it batches a whole work tree.
+    fn schedule_git(&mut self) -> Task<Message> {
+        let Screen::Results(results) = &mut self.screen else {
+            return Task::none();
+        };
+        let Some(job) = results.candidates.next_job() else {
+            return Task::none();
+        };
+        let id = results.scan_id;
+        match self.env.git.clone() {
+            Some(git) => blocking(
+                move || Ok(git::verify(&git, &job)),
+                move |r: Result<_, String>| Message::GitChecked(id, r.unwrap_or_default()),
+            ),
+            None => Task::done(Message::GitChecked(
+                id,
+                job.items
+                    .iter()
+                    .map(|&(c, _)| (c, GitStatus::Unavailable))
+                    .collect(),
+            )),
+        }
+    }
+
+    /// The only place a `TrashJob` is created: the confirmed dialog.
+    fn confirm_trash(&mut self) -> Task<Message> {
+        let Some(Modal::Confirm { plan, .. }) = self.modal.take() else {
+            return Task::none();
+        };
+        let Screen::Results(r) = &mut self.screen else {
+            return Task::none();
+        };
+        self.next_trash_job += 1;
+        let job = r.start_trash(&plan, TrashJobId(self.next_trash_job));
+        let (guards, trasher) = (Arc::clone(&self.env.guards), Arc::clone(&self.env.trasher));
+        let (id, generation) = (job.id, job.tree_gen);
+        blocking(
+            move || Ok(dirstat_core::trash::execute(&job, &guards, &*trasher)),
+            move |result: Result<Vec<TrashOutcome>, String>| {
+                let outcomes = result.unwrap_or_else(|e| {
+                    vec![TrashOutcome::Failed(Default::default(), TrashError::Os(e))]
+                });
+                Message::TrashFinished(id, generation, outcomes)
+            },
+        )
     }
 
     /// Carries out what a tree action asked for: listings, reveals, copies.
@@ -782,6 +971,10 @@ impl App {
 
     pub fn prefs(&self) -> &Prefs {
         &self.prefs
+    }
+
+    pub fn modal(&self) -> Option<&Modal> {
+        self.modal.as_ref()
     }
 
     pub fn fda_bar_visible(&self) -> bool {

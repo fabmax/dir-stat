@@ -67,7 +67,8 @@ pub const fn display_section(risk: Risk, git: GitState) -> Display {
 }
 
 /// Warning lines for the trash dialog that come from the catalog and git (design §7.3).
-/// `reason` is the rule's reason, `repo` the work tree's folder name.
+/// `reason` is the rule's reason, `repo` the work tree's folder name. With an empty `reason`
+/// (the dialog shows it on its own line already) the risk line is a plain sentence.
 pub fn warnings(risk: Risk, display: Display, reason: &str, repo: &str) -> Vec<String> {
     let mut lines = Vec::new();
     match display {
@@ -92,12 +93,16 @@ pub fn warnings(risk: Risk, display: Display, reason: &str, repo: &str) -> Vec<S
             why: Why::Catalog, ..
         } => {}
     }
-    match risk {
-        Risk::Safe => {}
-        Risk::Low => lines.push(format!(
-            "Restored only by re-downloading or rebuilding: {reason}"
-        )),
-        Risk::Review => lines.push(format!("May contain data you want: {reason}")),
+    let (low, review) = (
+        "Restored only by re-downloading or rebuilding",
+        "May contain data you want",
+    );
+    match (risk, reason.is_empty()) {
+        (Risk::Safe, _) => {}
+        (Risk::Low, true) => lines.push(format!("{low}.")),
+        (Risk::Low, false) => lines.push(format!("{low}: {reason}")),
+        (Risk::Review, true) => lines.push(format!("{review}.")),
+        (Risk::Review, false) => lines.push(format!("{review}: {reason}")),
     }
     lines
 }
@@ -201,5 +206,13 @@ mod tests {
             ["Contains files tracked by git in proj."]
         );
         assert!(warnings(Risk::Review, Display::Pending, "x", "proj").is_empty());
+        assert_eq!(
+            warnings(Risk::Low, catalog(Risk::Low), "", "proj"),
+            ["Restored only by re-downloading or rebuilding."]
+        );
+        assert_eq!(
+            warnings(Risk::Review, catalog(Risk::Review), "", "proj"),
+            ["May contain data you want."]
+        );
     }
 }

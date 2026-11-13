@@ -255,6 +255,11 @@ pub fn terminal_app_name(
     Some(known(id).map_or_else(|| id.to_string(), str::to_string))
 }
 
+/// The volume holding `path` is mounted read-only (G5). `false` when it can't be told.
+pub fn is_read_only(path: &Path) -> bool {
+    imp::is_read_only(path)
+}
+
 /// The filesystem type of the mount containing `path` (longest matching mount point).
 pub fn fs_type_of(path: &Path, mounts: &[Mount]) -> String {
     mounts

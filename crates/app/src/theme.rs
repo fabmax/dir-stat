@@ -555,3 +555,83 @@ pub fn info_bar(theme: &Theme) -> container::Style {
         ..container::Style::default()
     }
 }
+
+/// Dims the window behind a dialog.
+pub fn scrim(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(tokens(theme).scrim.into()),
+        ..container::Style::default()
+    }
+}
+
+/// A dialog card: raised, radius 12, shadow.
+pub fn dialog(theme: &Theme) -> container::Style {
+    let tokens = tokens(theme);
+    container::Style {
+        background: Some(tokens.bg_raised.into()),
+        border: Border {
+            color: tokens.border_hairline,
+            width: 1.0,
+            radius: 12.0.into(),
+        },
+        shadow: iced::Shadow {
+            color: tokens.shadow,
+            offset: iced::Vector::new(0.0, 8.0),
+            blur_radius: 24.0,
+        },
+        text_color: Some(tokens.text_primary),
+        ..container::Style::default()
+    }
+}
+
+/// Dialog buttons: the destructive one is filled critical with white text; the focused one
+/// gets a 2 px accent ring.
+pub fn dialog_button(
+    theme: &Theme,
+    status: button::Status,
+    focused: bool,
+    destructive: bool,
+) -> button::Style {
+    let tokens = tokens(theme);
+    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    let (background, text_color) = if destructive {
+        let fill = if hovered {
+            tokens.status_critical.scale_alpha(0.85)
+        } else {
+            tokens.status_critical
+        };
+        (fill, Color::WHITE)
+    } else {
+        (
+            if hovered {
+                tokens.bg_hover
+            } else {
+                tokens.bg_raised
+            },
+            tokens.text_primary,
+        )
+    };
+    let border = if focused {
+        Border {
+            color: tokens.accent,
+            width: 2.0,
+            radius: 6.0.into(),
+        }
+    } else {
+        Border {
+            color: if destructive {
+                tokens.status_critical
+            } else {
+                tokens.border_strong
+            },
+            width: 1.0,
+            radius: 6.0.into(),
+        }
+    };
+    button::Style {
+        background: Some(background.into()),
+        text_color,
+        border,
+        ..button::Style::default()
+    }
+}

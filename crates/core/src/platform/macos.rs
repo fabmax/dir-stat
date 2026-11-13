@@ -101,3 +101,13 @@ pub fn full_disk_access() -> Option<bool> {
     // Listing this folder needs Full Disk Access; it exists on every macOS.
     Some(std::fs::read_dir("/Library/Application Support/com.apple.TCC").is_ok())
 }
+
+pub fn is_read_only(path: &std::path::Path) -> bool {
+    let Ok(c_path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+        return false;
+    };
+    let mut s: libc::statfs = unsafe { std::mem::zeroed() };
+    unsafe {
+        libc::statfs(c_path.as_ptr(), &mut s) == 0 && s.f_flags & libc::MNT_RDONLY as u32 != 0
+    }
+}

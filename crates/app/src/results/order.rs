@@ -4,7 +4,7 @@
 use std::cmp::Ordering;
 use std::time::{Duration, Instant};
 
-use dirstat_core::tree::{FileFlags, Node, NodeId, Tree};
+use dirstat_core::tree::{FileFlags, Node, NodeFlags, NodeId, Tree};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Column {
@@ -106,10 +106,22 @@ pub fn split_files(node: &Node) -> FileSplit {
     }
 }
 
-/// The current set of children: subfolders, listed files, the aggregate.
+/// The current set of children. Trashed ones are gone: a re-order drops their rows, which
+/// stay (struck through) only until then.
 fn child_keys(tree: &Tree, id: NodeId, split: &FileSplit) -> Vec<ChildKey> {
-    let mut keys: Vec<ChildKey> = tree.children(id).map(ChildKey::Dir).collect();
-    keys.extend(split.shown.iter().map(|&i| ChildKey::File(i)));
+    let mut keys: Vec<ChildKey> = tree
+        .children(id)
+        .filter(|&c| !tree.node(c).has_flag(NodeFlags::TRASHED))
+        .map(ChildKey::Dir)
+        .collect();
+    let files = tree.node(id).large_files();
+    keys.extend(
+        split
+            .shown
+            .iter()
+            .filter(|&&i| !files[i as usize].flags.contains(FileFlags::TRASHED))
+            .map(|&i| ChildKey::File(i)),
+    );
     if split.aggregate_count > 0 {
         keys.push(ChildKey::Aggregate);
     }

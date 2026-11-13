@@ -167,7 +167,7 @@ fn print_candidates(tree: &Tree, engine: &Engine) {
     );
 
     let mut shown: BTreeMap<&str, Vec<(u64, String)>> = BTreeMap::new();
-    let mut hidden = 0;
+    let mut hidden = Vec::new();
     for &candidate in tree.candidates() {
         let (rule, size, path) = match candidate {
             CandidateRef::Dir(id) => {
@@ -199,7 +199,7 @@ fn print_candidates(tree: &Tree, engine: &Engine) {
                 ..
             } => "2 Review first",
             Display::Hidden | Display::Pending => {
-                hidden += 1;
+                hidden.push(path.display().to_string());
                 continue;
             }
         };
@@ -235,7 +235,10 @@ fn print_candidates(tree: &Tree, engine: &Engine) {
             println!("{:>12} KiB  {label}", size / 1024);
         }
     }
-    println!("\nhidden (tracked by git): {hidden}");
+    println!("\nhidden (tracked by git): {}", hidden.len());
+    for path in hidden.iter().take(5) {
+        println!("  {path}");
+    }
 }
 
 #[cfg(unix)]

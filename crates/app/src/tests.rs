@@ -31,6 +31,14 @@ fn app() -> App {
         system_name: "Test Disk".into(),
         home: None,
         terminal: None,
+        guards: std::sync::Arc::new(dirstat_core::safety::Guards::for_home(
+            "/nonexistent-home".into(),
+            Default::default(),
+        )),
+        trasher: std::sync::Arc::new(dirstat_core::trash::RecordingTrasher::into_dir(
+            std::env::temp_dir(),
+        )),
+        git: None,
     };
     App::new(env, Cli::default()).0
 }
@@ -283,4 +291,213 @@ fn errors_popover_and_full_disk_access_bar() {
     let _ = app.update(Message::Scan(id, Update::Started(builder.root_info())));
     let _ = app.update(Message::Scan(id, batch(builder.listings())));
     assert!(!app.fda_bar_visible());
+}
+
+mod trash_flow {
+    use super::*;
+    use crate::keys::KeyAction;
+    use crate::results::rows::RowKey;
+    use crate::results::selection_bar::{Action, contents};
+    use crate::results::trash::{Focus, Modal};
+    use dirstat_core::catalog::Verdict;
+    use dirstat_core::scan::Skip;
+    use dirstat_core::trash::{TrashError, TrashJobId, TrashOutcome};
+    use dirstat_core::tree::NodeFlags;
+
+    /// root: big (100 MB), cache (a Low candidate, 2 MB), mnt-holder (a mount inside).
+    fn scanned(app: &mut App) -> (NodeId, NodeId, NodeId) {
+        let low = Verdict::Target {
+            rule: engine().rule_by_id("node-modules").unwrap(),
+            by_default: false,
+        };
+        let builder = TreeBuilder::new(
+            "/r",
+            dir("r")
+                .child(dir("big").small_files(1, 100_000_000))
+                .child(dir("node_modules").verdict(low).small_files(5, 2_000_000))
+                .child(dir("holder").child(dir("mnt").skip(Skip::MountPoint))),
+        );
+        completed(app, &builder);
+        let tree = &results(app).tree;
+        let find = |p: &str| tree.find_path(std::path::Path::new(p)).unwrap();
+        (find("/r/big"), find("/r/node_modules"), find("/r/holder"))
+    }
+
+    fn select(app: &mut App, id: NodeId) {
+        let _ = app.update(Message::RowPressed(RowKey::Dir(id)));
+    }
+
+    #[test]
+    fn nothing_moves_before_confirm_and_return_cancels_risky_items() {
+        let mut app = app();
+        let (_, cache, _) = scanned(&mut app);
+        select(&mut app, cache);
+        let _ = app.update(Message::Key(KeyAction::Trash));
+        let Some(Modal::Confirm { plan, focus }) = app.modal() else {
+            panic!("{:?}", app.modal())
+        };
+        assert!(
+            !plan.default_is_trash,
+            "Low is Review first: Cancel is the default"
+        );
+        assert_eq!(*focus, Focus::Cancel);
+        assert!(
+            results(&app).trash_jobs.is_empty(),
+            "no job before confirming"
+        );
+
+        let _ = app.update(Message::Key(KeyAction::Enter));
+        assert!(app.modal().is_none(), "Return cancelled");
+        assert!(results(&app).trash_jobs.is_empty());
+        assert!(
+            !results(&app)
+                .tree
+                .node(cache)
+                .has_flag(NodeFlags::TRASH_PENDING)
+        );
+
+        // Tab to the destructive button, Space presses it.
+        let _ = app.update(Message::Key(KeyAction::Trash));
+        let _ = app.update(Message::Key(KeyAction::Tab));
+        let _ = app.update(Message::Key(KeyAction::Space));
+        assert!(app.modal().is_none());
+        assert_eq!(results(&app).trash_jobs.len(), 1);
+        assert!(
+            results(&app)
+                .tree
+                .node(cache)
+                .has_flag(NodeFlags::TRASH_PENDING),
+            "Moving to Trash…"
+        );
+    }
+
+    #[test]
+    fn success_accounts_at_once_and_the_row_leaves_at_the_next_reorder() {
+        let mut app = app();
+        let (_, cache, _) = scanned(&mut app);
+        let root_before = results(&app).tree.node(NodeId::ROOT).total().alloc;
+        let cache_size = results(&app).tree.node(cache).total().alloc;
+        select(&mut app, cache);
+        let _ = app.update(Message::RequestTrash);
+        let _ = app.update(Message::ConfirmTrash);
+        let generation = results(&app).tree_gen;
+        let path = results(&app).tree.path_of(cache);
+        let _ = app.update(Message::TrashFinished(
+            TrashJobId(1),
+            generation,
+            vec![TrashOutcome::Trashed(path)],
+        ));
+
+        let r = results(&app);
+        assert_eq!(
+            r.tree.node(NodeId::ROOT).total().alloc,
+            root_before - cache_size,
+            "ancestors drop at once"
+        );
+        assert!(r.tree.node(cache).has_flag(NodeFlags::TRASHED));
+        assert!(
+            r.view.rows.iter().any(|row| row.key == RowKey::Dir(cache)),
+            "the struck-through row stays"
+        );
+        assert!(app.toast_text().is_some_and(|t| {
+            t.starts_with("Moved “node_modules” to the Trash. Empty the Trash to free")
+        }));
+
+        // The scan is complete; the post-trash re-order still runs on the tick.
+        let later = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let _ = app.update(Message::Tick(later));
+        assert!(
+            !results(&app)
+                .view
+                .rows
+                .iter()
+                .any(|row| row.key == RowKey::Dir(cache)),
+            "gone after the re-order"
+        );
+    }
+
+    #[test]
+    fn failure_restores_the_row_with_a_sticky_toast() {
+        let mut app = app();
+        let (_, cache, _) = scanned(&mut app);
+        select(&mut app, cache);
+        let _ = app.update(Message::RequestTrash);
+        let _ = app.update(Message::ConfirmTrash);
+        let generation = results(&app).tree_gen;
+        let path = results(&app).tree.path_of(cache);
+        let error = TrashError::Os("Operation not permitted".into());
+        let _ = app.update(Message::TrashFinished(
+            TrashJobId(1),
+            generation,
+            vec![TrashOutcome::Failed(path, error)],
+        ));
+        let node = results(&app).tree.node(cache);
+        assert!(!node.has_flag(NodeFlags::TRASH_PENDING) && !node.has_flag(NodeFlags::TRASHED));
+        assert_eq!(
+            app.toast_text(),
+            Some("Couldn't move “node_modules” to the Trash: Operation not permitted")
+        );
+        // Sticky: still there after the info-toast timeout.
+        let _ = app.update(Message::Tick(
+            std::time::Instant::now() + std::time::Duration::from_secs(10),
+        ));
+        assert!(app.toast_text().is_some());
+    }
+
+    #[test]
+    fn a_result_for_an_old_tree_changes_nothing() {
+        let mut app = app();
+        let (_, cache, _) = scanned(&mut app);
+        select(&mut app, cache);
+        let _ = app.update(Message::RequestTrash);
+        let _ = app.update(Message::ConfirmTrash);
+        let before = results(&app).tree.node(NodeId::ROOT).total().alloc;
+        let path = results(&app).tree.path_of(cache);
+        let stale = results(&app).tree_gen + 7;
+        let _ = app.update(Message::TrashFinished(
+            TrashJobId(1),
+            stale,
+            vec![TrashOutcome::Trashed(path)],
+        ));
+        assert_eq!(results(&app).tree.node(NodeId::ROOT).total().alloc, before);
+        assert!(!results(&app).tree.node(cache).has_flag(NodeFlags::TRASHED));
+    }
+
+    #[test]
+    fn the_trash_button_is_disabled_for_unfinished_folders_and_other_volumes() {
+        let mut app = app();
+        let (big, _, holder) = scanned(&mut app);
+        let trash_action = |app: &App, id| {
+            contents(results(app), RowKey::Dir(id), None, 0)
+                .unwrap()
+                .actions
+                .into_iter()
+                .find(|a| matches!(a, Action::Trash(_)))
+        };
+        assert_eq!(trash_action(&app, big), Some(Action::Trash(Ok(()))));
+        assert_eq!(
+            trash_action(&app, holder),
+            Some(Action::Trash(Err("This folder contains another volume.")))
+        );
+        let _ = app.update(Message::RowPressed(RowKey::Dir(holder)));
+        let _ = app.update(Message::RequestTrash);
+        assert!(
+            matches!(app.modal(), Some(Modal::Refuse { message, .. }) if message.contains("another volume"))
+        );
+
+        // While scanning, an unfinished folder can't be trashed.
+        let builder = TreeBuilder::new("/r", dir("r").child(dir("x").child(dir("y"))));
+        let id = app.start_simulated("/r");
+        let _ = app.update(Message::Scan(id, Update::Started(builder.root_info())));
+        let _ = app.update(Message::Scan(
+            id,
+            batch(builder.listings().into_iter().take(2).collect()),
+        ));
+        assert_eq!(
+            trash_action(&app, NodeId(1)),
+            Some(Action::Trash(Err(
+                "Available when this folder is fully scanned."
+            )))
+        );
+    }
 }

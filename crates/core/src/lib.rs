@@ -4,6 +4,7 @@
 pub mod catalog;
 pub mod git;
 pub mod platform;
+pub mod safety;
 pub mod scan;
 pub mod smallfiles;
 pub mod trash;

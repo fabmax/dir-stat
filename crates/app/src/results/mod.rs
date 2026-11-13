@@ -1,6 +1,7 @@
 //! The Results screen: the tree of one scan, its live state and the views around it.
 
 pub mod activity;
+pub mod candidates;
 pub mod columns;
 pub mod errors;
 pub mod nav;
@@ -8,13 +9,17 @@ pub mod order;
 pub mod rows;
 pub mod scan_task;
 pub mod selection_bar;
+pub mod trash;
 pub mod tree_view;
 
 use std::path::PathBuf;
 use std::time::Instant;
 
+use std::collections::HashMap;
+
 use dirstat_core::scan::{StartError, Summary, Update};
-use dirstat_core::tree::Tree;
+use dirstat_core::trash::{TrashJob, TrashJobId, TrashOutcome};
+use dirstat_core::tree::{FileFlags, NodeFlags, NodeId, Tree};
 use dirstat_core::volumes::ScanEstimate;
 
 use activity::ActivityModel;
@@ -22,6 +27,8 @@ use order::Column;
 use rows::RowKey;
 use scan_task::{ActiveScan, ScanId};
 use tree_view::{Effect, TreeView};
+
+use crate::format;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
@@ -55,7 +62,25 @@ pub struct Results {
     /// macOS: the first privacy-blocked folder of this scan raised the Full Disk Access bar.
     pub fda_bar: bool,
     pub errors_popover: bool,
+    /// When the scan started: contents-mode trash leaves newer files in place (G9).
+    pub scan_started: std::time::SystemTime,
+    /// Bumped by every full scan; trash results for another generation don't touch the tree.
+    pub tree_gen: u32,
+    pub candidates: candidates::Candidates,
+    pub trash_jobs: HashMap<TrashJobId, PendingTrash>,
 }
+
+/// A trash job in flight: what to account for when it finishes.
+#[derive(Clone, Debug)]
+pub struct PendingTrash {
+    pub target: trash::TrashTarget,
+    pub name: String,
+    pub frees: u64,
+    pub shared_space: bool,
+}
+
+/// The toast a finished trash job asks for: text, and whether it stays until closed.
+pub type TrashToast = (String, bool);
 
 /// What a scan update means for the screen.
 #[derive(Debug)]
@@ -88,6 +113,10 @@ impl Results {
             scan_id: active.id,
             fda_bar: false,
             errors_popover: false,
+            scan_started: std::time::SystemTime::now(),
+            tree_gen: active.id.0 as u32,
+            candidates: candidates::Candidates::default(),
+            trash_jobs: HashMap::new(),
             tree: Tree::opening(root),
             phase: Phase::Opening,
             active: Some(active),
@@ -190,6 +219,7 @@ impl Results {
         if self.active.is_some() {
             self.activity.refresh_path(&self.tree, now);
         }
+        self.candidates.collect(&self.tree);
         if let Some(offset) = self
             .view
             .tick(&self.tree, now, self.active.is_some(), button_held)
@@ -270,6 +300,176 @@ impl Results {
                 .reveal_node(&mut self.tree, id, now)
                 .or(self.scroll_to);
         }
+    }
+
+    /// Marks the target pending and records the job: only the confirm button gets here.
+    pub fn start_trash(&mut self, plan: &trash::TrashPlan, id: TrashJobId) -> TrashJob {
+        let target = plan.target;
+        match target {
+            trash::TrashTarget::Dir(dir) => self.tree.set_flag(dir, NodeFlags::TRASH_PENDING, true),
+            trash::TrashTarget::File(dir, index) => {
+                self.tree
+                    .set_file_flag(dir, index, FileFlags::TRASH_PENDING, true)
+            }
+            trash::TrashTarget::SmallFile(dir, index) => {
+                if let Some(file) = self.small_file_mut(dir, index) {
+                    file.flags = FileFlags::TRASH_PENDING;
+                }
+            }
+        }
+        self.trash_jobs.insert(
+            id,
+            PendingTrash {
+                target,
+                name: plan.name.clone(),
+                frees: plan.frees,
+                shared_space: plan.shared_space,
+            },
+        );
+        TrashJob {
+            id,
+            tree_gen: self.tree_gen,
+            scan_root: self.tree.root_path().to_path_buf(),
+            items: plan.items.clone(),
+        }
+    }
+
+    fn small_file_mut(
+        &mut self,
+        dir: NodeId,
+        index: u32,
+    ) -> Option<&mut dirstat_core::smallfiles::SmallFile> {
+        match &mut self.view.open_aggregates.get_mut(&dir)?.small {
+            rows::SmallFiles::Loaded(files) => files.get_mut(index as usize),
+            _ => None,
+        }
+    }
+
+    /// Accounts for a finished trash job (design §7.4). Sizes leave the ancestors at once;
+    /// the struck-through row stays until the next re-order.
+    pub fn trash_finished(
+        &mut self,
+        id: TrashJobId,
+        generation: u32,
+        outcomes: Vec<TrashOutcome>,
+        home: Option<&std::path::Path>,
+        now: Instant,
+    ) -> Option<TrashToast> {
+        let pending = self.trash_jobs.remove(&id)?;
+        if generation != self.tree_gen {
+            return Some((
+                "The Trash finished for an earlier scan; rescan to see the change.".into(),
+                false,
+            ));
+        }
+        let name = &pending.name;
+        let mut toast = None;
+        for outcome in outcomes {
+            match outcome {
+                TrashOutcome::Trashed(_) => {
+                    match pending.target {
+                        trash::TrashTarget::Dir(dir) => self.tree.mark_trashed(dir),
+                        trash::TrashTarget::File(dir, index) => {
+                            self.tree.mark_file_trashed(dir, index)
+                        }
+                        trash::TrashTarget::SmallFile(dir, index) => {
+                            if let Some(file) = self.small_file_mut(dir, index) {
+                                file.flags = FileFlags::TRASHED;
+                                let (alloc, apparent, linked) =
+                                    (file.alloc, file.apparent, file.nlink > 1);
+                                self.tree.subtract_small_file(dir, alloc, apparent, linked);
+                            }
+                        }
+                    }
+                    let up_to = if pending.shared_space { "up to " } else { "" };
+                    toast = Some((
+                        format!(
+                            "Moved “{name}” to the Trash. Empty the Trash to free {up_to}{}.",
+                            format::size(pending.frees)
+                        ),
+                        false,
+                    ));
+                }
+                TrashOutcome::Contents { outcome, .. } => {
+                    let dir = pending.target.dir();
+                    self.tree.subtract_contents(dir, &outcome);
+                    self.tree.set_flag(dir, NodeFlags::TRASH_PENDING, false);
+                    let dirs: u64 = outcome
+                        .trashed_dirs
+                        .iter()
+                        .filter_map(|n| {
+                            self.tree
+                                .children(dir)
+                                .find(|&c| self.tree.node(c).name() == &**n)
+                        })
+                        .map(|c| self.tree.node(c).total().alloc)
+                        .sum();
+                    let mut text = format!(
+                        "Moved the contents of “{name}” to the Trash. Empty the Trash to free {}.",
+                        format::size(dirs + outcome.files_alloc)
+                    );
+                    if outcome.left_in_place > 0 {
+                        text += &format!(
+                            " {} changed since the scan and stayed.",
+                            format::plural(u64::from(outcome.left_in_place), "item", "items")
+                        );
+                    }
+                    let sticky = !outcome.failures.is_empty();
+                    if let Some((path, error)) = outcome.failures.first() {
+                        text += &format!(
+                            " {}",
+                            error.message(&path.file_name().unwrap_or_default().to_string_lossy())
+                        );
+                    }
+                    toast = Some((text, sticky));
+                }
+                TrashOutcome::Failed(_, error) => {
+                    match pending.target {
+                        trash::TrashTarget::Dir(dir) => {
+                            self.tree.set_flag(dir, NodeFlags::TRASH_PENDING, false)
+                        }
+                        trash::TrashTarget::File(dir, index) => {
+                            self.tree
+                                .set_file_flag(dir, index, FileFlags::TRASH_PENDING, false)
+                        }
+                        trash::TrashTarget::SmallFile(dir, index) => {
+                            if let Some(file) = self.small_file_mut(dir, index) {
+                                file.flags = FileFlags::default();
+                            }
+                        }
+                    }
+                    return Some((error.message(name), true));
+                }
+            }
+        }
+        // The struck-through row leaves at the next calm re-order, also after the scan.
+        self.view.reorder.post_trash = true;
+        if let Some(trash_node) = home.and_then(|h| self.tree.find_path(&h.join(".Trash"))) {
+            self.tree.set_flag(trash_node, NodeFlags::OUTDATED, true);
+        }
+        // Zoomed into what was just trashed: back to the nearest folder that is still there.
+        if let trash::TrashTarget::Dir(dir) = pending.target
+            && self.tree.is_within(self.view.zoom, dir)
+            && let Some(parent) = self.tree.node(dir).parent()
+        {
+            self.scroll_to = self
+                .view
+                .zoom_to(&self.tree, parent, Some(RowKey::Dir(dir)), now);
+            return Some((
+                format!("“{name}” was moved to the Trash; showing the folder it was in."),
+                false,
+            ));
+        }
+        self.scroll_to = self.view.rebuild(&self.tree, now).or(self.scroll_to);
+        toast
+    }
+
+    /// Ticks are needed while git or trash work is in flight, or a re-order is due.
+    pub fn busy(&self) -> bool {
+        self.is_scanning()
+            || self.candidates.busy()
+            || !self.trash_jobs.is_empty()
+            || self.view.reorder.post_trash
     }
 
     /// The path a row stands for (an aggregate or placeholder: its folder).
