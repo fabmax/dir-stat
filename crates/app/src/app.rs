@@ -9,13 +9,17 @@ use dirstat_core::platform::{self, Mount};
 use dirstat_core::scan::{Options, ScanRequest, StartError, Update};
 use dirstat_core::tree::NodeId;
 use dirstat_core::volumes::{self, CardKind, VolumeCard};
-use iced::widget::{button, center, column, container, row, space, stack};
-use iced::{Center, Element, Fill, Size, Subscription, Task, Theme, event, keyboard, time, window};
+use iced::widget::{button, center, column, container, operation, row, scrollable, space, stack};
+use iced::{
+    Center, Element, Fill, Size, Subscription, Task, Theme, event, keyboard, mouse, time, window,
+};
 
 use crate::keys::{self, KeyAction};
 use crate::prefs::{JsonPrefs, Prefs, PrefsStore};
+use crate::results::order::Column;
+use crate::results::rows::RowKey;
 use crate::results::scan_task::{self, ScanIdGen};
-use crate::results::{self, Results, ScanOutcome, StopOutcome, activity};
+use crate::results::{Results, ScanOutcome, StopOutcome, activity, columns};
 use crate::start::{self, StartState};
 use crate::{Cli, format, theme};
 
@@ -42,6 +46,9 @@ pub struct App {
     pub screen: Screen,
     window_size: Size,
     drag_hover: bool,
+    /// From any mouse event, also ones rows capture (calm sorting waits while held).
+    left_button_held: bool,
+    pointer_in_tree: bool,
     scan_ids: ScanIdGen,
     #[cfg(feature = "screenshot")]
     script: Option<crate::script::Script>,
@@ -67,6 +74,15 @@ pub enum Message {
     RescanAll,
     /// 50 ms, only while something is live (design §6.5).
     Tick(Instant),
+    // tree
+    TreeScrolled(scrollable::Viewport),
+    RowPressed(RowKey),
+    ToggleExpand(RowKey),
+    SortBy(Column),
+    /// Calm sorting inputs (design §6.7).
+    PointerIn(bool),
+    PointerMoved,
+    LeftButton(bool),
     // chrome
     Key(KeyAction),
     WindowResized(Size),
@@ -115,6 +131,8 @@ impl App {
             screen: Screen::Start(start),
             window_size: Size::new(1200.0, 800.0),
             drag_hover: false,
+            left_button_held: false,
+            pointer_in_tree: false,
             scan_ids: ScanIdGen::default(),
             #[cfg(feature = "screenshot")]
             script: None,
@@ -140,6 +158,24 @@ impl App {
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        let task = self.handle(message);
+        // Rows that moved under the anchor scroll back in the same update: no flicker.
+        if let Screen::Results(results) = &mut self.screen
+            && let Some(y) = results.scroll_to.take()
+        {
+            let scroll = operation::scroll_to(
+                columns::tree_id(),
+                scrollable::AbsoluteOffset {
+                    x: None,
+                    y: Some(y),
+                },
+            );
+            return Task::batch([task, scroll]);
+        }
+        task
+    }
+
+    fn handle(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::ScanPath(path) => return self.start_scan(path),
             Message::ChooseFolder => return choose_folder(),
@@ -171,8 +207,44 @@ impl App {
                 }
             }
             Message::Tick(now) => return self.tick(now),
+            Message::TreeScrolled(viewport) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.view.scrolled(
+                        viewport.absolute_offset().y,
+                        viewport.bounds().height,
+                        Instant::now(),
+                    );
+                }
+            }
+            Message::RowPressed(key) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.view.select(key, Instant::now());
+                }
+            }
+            Message::ToggleExpand(key) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.toggle(key, Instant::now());
+                }
+            }
+            Message::SortBy(column) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.sort_by(column, Instant::now());
+                }
+            }
+            Message::PointerIn(inside) => self.pointer_in_tree = inside,
+            Message::PointerMoved => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.view.reorder.activity(Instant::now());
+                }
+            }
+            Message::LeftButton(held) => self.left_button_held = held,
             Message::Key(action) => return self.key(action),
-            Message::WindowResized(size) => self.window_size = size,
+            Message::WindowResized(size) => {
+                self.window_size = size;
+                if let Screen::Results(r) = &mut self.screen {
+                    r.view.set_height(tree_height(size));
+                }
+            }
             Message::PlatformResult(result) => {
                 if let Err(error) = result {
                     eprintln!("dir-stat: {error}");
@@ -216,8 +288,19 @@ impl App {
             Options::new(Arc::clone(&self.env.engine)),
         );
         // Replacing the screen drops a previous scan, which cancels it.
-        self.screen = Screen::Results(Box::new(Results::new(path, title, estimate, active)));
-        task
+        let mut results = Results::new(path, title, estimate, active);
+        results.view.set_height(tree_height(self.window_size));
+        self.screen = Screen::Results(Box::new(results));
+        Task::batch([
+            task,
+            operation::scroll_to(
+                columns::tree_id(),
+                scrollable::AbsoluteOffset {
+                    x: None,
+                    y: Some(0.0),
+                },
+            ),
+        ])
     }
 
     fn on_scan(&mut self, id: scan_task::ScanId, update: Update) {
@@ -256,6 +339,9 @@ impl App {
     }
 
     fn key(&mut self, action: KeyAction) -> Task<Message> {
+        if let Screen::Results(r) = &mut self.screen {
+            r.view.reorder.activity(Instant::now());
+        }
         match (&mut self.screen, action) {
             (_, KeyAction::ChooseFolder) => return choose_folder(),
             (Screen::Start(start), action) => {
@@ -272,8 +358,9 @@ impl App {
     }
 
     fn tick(&mut self, now: Instant) -> Task<Message> {
+        let button_held = self.left_button_held;
         if let Screen::Results(results) = &mut self.screen {
-            results.tick(now);
+            results.tick(now, button_held);
         }
         #[cfg(feature = "screenshot")]
         if let Some(script) = &mut self.script {
@@ -288,6 +375,13 @@ impl App {
                 }
                 Due::Path(path) => return self.start_scan(path),
                 Due::Key(action) => return self.key(action),
+                Due::Expand(rel) => {
+                    if let Screen::Results(r) = &mut self.screen
+                        && let Some(id) = r.tree.find_path(&r.tree.root_path().join(&rel))
+                    {
+                        r.toggle(RowKey::Dir(id), now);
+                    }
+                }
                 Due::Done => return iced::exit(),
             }
         }
@@ -299,6 +393,10 @@ impl App {
             keyboard::listen().filter_map(keys::map),
             event::listen_with(window_event),
         ];
+        // Pointer moves only matter while a re-order can happen: no message per move otherwise.
+        if self.pointer_in_tree && matches!(&self.screen, Screen::Results(r) if r.is_scanning()) {
+            subscriptions.push(event::listen_with(pointer_moved));
+        }
         if self.needs_ticks() {
             subscriptions.push(time::every(Duration::from_millis(50)).map(Message::Tick));
         }
@@ -374,7 +472,7 @@ impl App {
                 .width(Fill)
                 .height(1)
                 .style(theme::hairline),
-            results::top_level_list(results),
+            columns::view(results, Instant::now()),
         ]
         .into()
     }
@@ -391,8 +489,28 @@ fn window_event(
         iced::Event::Window(window::Event::FilesHoveredLeft) => Some(Message::FilesHoveredLeft),
         iced::Event::Window(window::Event::FileDropped(path)) => Some(Message::FileDropped(path)),
         iced::Event::Window(window::Event::Resized(size)) => Some(Message::WindowResized(size)),
+        iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+            Some(Message::LeftButton(true))
+        }
+        iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+            Some(Message::LeftButton(false))
+        }
         _ => None,
     }
+}
+
+fn pointer_moved(
+    event: iced::Event,
+    _status: event::Status,
+    _window: window::Id,
+) -> Option<Message> {
+    matches!(event, iced::Event::Mouse(mouse::Event::CursorMoved { .. }))
+        .then_some(Message::PointerMoved)
+}
+
+/// The tree's viewport: the window minus toolbar, path bar, rules and the column header.
+fn tree_height(window: Size) -> f32 {
+    window.height - 44.0 - 1.0 - 32.0 - 1.0 - columns::HEADER_H
 }
 
 /// The folder picker must be created on the main thread, i.e. here in `update` (API §g).

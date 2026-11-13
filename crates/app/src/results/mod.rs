@@ -1,22 +1,24 @@
 //! The Results screen: the tree of one scan, its live state and the views around it.
 
 pub mod activity;
+pub mod columns;
+pub mod order;
+pub mod rows;
 pub mod scan_task;
+pub mod tree_view;
 
 use std::path::PathBuf;
 use std::time::Instant;
 
 use dirstat_core::scan::{StartError, Summary, Update};
-use dirstat_core::tree::{NodeId, NodeState, Tree};
+use dirstat_core::tree::Tree;
 use dirstat_core::volumes::ScanEstimate;
-use iced::widget::{Column, column, container, row, scrollable, text};
-use iced::{Center, Element, Fill};
 
-use crate::app::Message;
-use crate::theme;
-use crate::{fonts, format, widgets};
 use activity::ActivityModel;
+use order::Column;
+use rows::RowKey;
 use scan_task::{ActiveScan, ScanId};
+use tree_view::TreeView;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
@@ -42,6 +44,9 @@ pub struct Results {
     /// "Macintosh HD", or the folder name.
     pub title: String,
     pub started_at: Instant,
+    pub view: TreeView,
+    /// Set when the rows moved under the anchor; the app turns it into a `scroll_to`.
+    pub scroll_to: Option<f32>,
 }
 
 /// What a scan update means for the screen.
@@ -81,6 +86,8 @@ impl Results {
             summary: None,
             title,
             started_at: Instant::now(),
+            view: TreeView::default(),
+            scroll_to: None,
         }
     }
 
@@ -105,7 +112,9 @@ impl Results {
             }
             Update::Batch(batch) => {
                 for listing in batch.listings {
-                    self.tree.apply(listing);
+                    let id = listing.id;
+                    let effect = self.tree.apply(listing);
+                    self.view.on_listing(&self.tree, id, effect);
                 }
                 if from_active {
                     self.activity.on_progress(batch.progress, now);
@@ -156,117 +165,36 @@ impl Results {
         self.active.is_none() && matches!(self.phase, Phase::Complete | Phase::Stopped)
     }
 
-    pub fn tick(&mut self, now: Instant) {
-        if self.active.is_some() && self.tree.is_started() {
+    pub fn tick(&mut self, now: Instant, button_held: bool) {
+        if !self.tree.is_started() {
+            return;
+        }
+        if self.active.is_some() {
             self.activity.refresh_path(&self.tree, now);
         }
+        if let Some(offset) = self
+            .view
+            .tick(&self.tree, now, self.active.is_some(), button_held)
+        {
+            self.scroll_to = Some(offset);
+        }
     }
-}
 
-/// Temporary (M4): the root's direct children, unsorted, so progress can be seen. The real
-/// tree view replaces it.
-pub fn top_level_list(results: &Results) -> Element<'_, Message> {
-    let tree = &results.tree;
-    if !tree.is_started() {
-        return container(
-            theme::BODY
-                .text(format!("Reading {}…", tree.root_path().display()))
-                .style(theme::text_secondary),
-        )
-        .padding(16)
-        .into();
+    pub fn toggle(&mut self, key: RowKey, now: Instant) {
+        if self.tree.is_started() {
+            self.scroll_to = self
+                .view
+                .toggle(&mut self.tree, key, now)
+                .or(self.scroll_to);
+        }
     }
-    let header = row![
-        theme::SMALL
-            .with_font(fonts::MEDIUM)
-            .text("Name")
-            .width(Fill)
-            .style(theme::text_secondary),
-        theme::SMALL
-            .with_font(fonts::MEDIUM)
-            .text("Size")
-            .width(110)
-            .align_x(iced::Right)
-            .style(theme::text_secondary),
-        theme::SMALL
-            .with_font(fonts::MEDIUM)
-            .text("Items")
-            .width(90)
-            .align_x(iced::Right)
-            .style(theme::text_secondary),
-    ]
-    .padding([0, 16])
-    .height(28)
-    .align_y(Center);
 
-    let rows = tree.children(NodeId::ROOT).take(500).map(|id| {
-        let node = tree.node(id);
-        let (marker, size, items) = match node.state() {
-            NodeState::Pending => (
-                "○",
-                format::PENDING.to_string(),
-                format::PENDING.to_string(),
-            ),
-            NodeState::Skipped(_) => ("", format::PENDING.to_string(), "other volume".into()),
-            state => {
-                let size = if tree.is_lower_bound(id) {
-                    format::size_at_least(node.total().alloc)
-                } else {
-                    format::size(node.total().alloc)
-                };
-                (
-                    if state == NodeState::Scanning && !tree.is_stopped() {
-                        "•"
-                    } else {
-                        ""
-                    },
-                    size,
-                    format::count(node.total().items),
-                )
-            }
-        };
-        let done = node.is_done();
-        row![
-            theme::BODY
-                .text(widgets::truncate_end(
-                    &node.name().to_string_lossy(),
-                    520.0,
-                    theme::BODY.size
-                ))
-                .width(Fill)
-                .wrapping(text::Wrapping::None),
-            theme::BODY
-                .text(marker)
-                .style(move |t| if marker == "○" {
-                    theme::text_muted(t)
-                } else {
-                    theme::text_accent(t)
-                })
-                .width(14),
-            theme::BODY
-                .text(size)
-                .width(96)
-                .align_x(iced::Right)
-                .style(move |t| if done {
-                    theme::text_primary(t)
-                } else {
-                    theme::text_secondary(t)
-                }),
-            theme::SMALL
-                .text(items)
-                .width(90)
-                .align_x(iced::Right)
-                .style(theme::text_secondary),
-        ]
-        .padding([0, 16])
-        .height(28)
-        .align_y(Center)
-        .into()
-    });
-    let list = scrollable(Column::with_children(rows).width(Fill)).height(Fill);
-    container(column![header, list])
-        .width(Fill)
-        .height(Fill)
-        .style(theme::surface)
-        .into()
+    pub fn sort_by(&mut self, column: Column, now: Instant) {
+        if self.tree.is_started() {
+            self.scroll_to = self
+                .view
+                .sort_by(&self.tree, column, now)
+                .or(self.scroll_to);
+        }
+    }
 }

@@ -1563,6 +1563,12 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
 - Synchronous rebuilds for user actions; throttled rebuilds for scan batches.
 - Responsive columns, the 440 px tree minimum; placeholder rows before the root listing.
 - *Accept:* the `order` and `rows` unit tests (no re-order within 700 ms of pointer, key or scroll activity or while a button is held; at most one forced re-order per 5 s; siblings within 10% never flip; the anchor stays put when listings arrive above the viewport; no blank tree after collapsing a long list); `view()` stays under 2 ms with 160k rows expanded (log timing in debug); completion triggers one exact re-sort with the selection anchored; expanding and collapsing respond within one frame.
+- *Done 2026-11-13.* `view()` builds the pane in 0.09 ms with 160,400 rows expanded (debug and release); building all rows takes 4.3 ms. Notes:
+  - **Anchoring at the top:** with no visible selection and the view at offset 0, there is no anchor, so re-orders and the completion sort keep the biggest rows in view. Anchoring to the first visible row there followed a small row down the list after completion.
+  - Expanded aggregate rows list up to 50 remaining kept files, then a muted "and N smaller files" row; "Show 50 more" and the on-demand small-file listing come in M6.
+  - Selection by click exists (it anchors re-orders); keyboard navigation and double-click zoom are M6. A double-click toggles a folder for now.
+  - The 440 px tree minimum applies once the side pane exists (M9).
+  - `DIRSTAT_SCRIPT` gained `expand:<relative path>` for screenshots of expanded trees.
 
 **M6 — Navigation, selection, actions**
 - Selection (mouse + keys), focus panes, the full `keys.rs` map.

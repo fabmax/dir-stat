@@ -7,7 +7,7 @@
 #![allow(dead_code)]
 
 use iced::font::Font;
-use iced::widget::{button, container, progress_bar, text};
+use iced::widget::{button, container, progress_bar, scrollable, text};
 use iced::{Background, Border, Color, Theme, color};
 
 use crate::fonts;
@@ -366,5 +366,121 @@ pub fn meter(theme: &Theme, critical: bool) -> progress_bar::Style {
             radius: 3.0.into(),
             ..Border::default()
         },
+    }
+}
+
+/// The column header above the tree: hairline below.
+pub fn header(theme: &Theme) -> container::Style {
+    let tokens = tokens(theme);
+    container::Style {
+        background: Some(tokens.bg_surface.into()),
+        border: Border {
+            color: tokens.border_hairline,
+            width: 0.0,
+            radius: 0.0.into(),
+        },
+        ..container::Style::default()
+    }
+}
+
+pub fn placeholder_bar(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(tokens(theme).bar_track.into()),
+        border: Border {
+            radius: 4.0.into(),
+            ..Border::default()
+        },
+        ..container::Style::default()
+    }
+}
+
+/// Tree rows keep their text tokens when selected (no inversion, bars stay visible).
+pub fn tree_row(theme: &Theme, selected: bool) -> container::Style {
+    let tokens = tokens(theme);
+    container::Style {
+        background: selected.then(|| tokens.bg_selected.into()),
+        text_color: Some(tokens.text_primary),
+        ..container::Style::default()
+    }
+}
+
+/// Hover wash drawn over a row: ink 4% (light) / white 5% (dark), so text stays readable.
+pub fn row_hover(theme: &Theme) -> container::Style {
+    let wash = if theme.extended_palette().is_dark {
+        Color::from_rgba(1.0, 1.0, 1.0, 0.05)
+    } else {
+        Color::from_rgba(0.043, 0.043, 0.043, 0.04)
+    };
+    container::Style {
+        background: Some(wash.into()),
+        ..container::Style::default()
+    }
+}
+
+/// The share bar (UX §11.6): 6 px, radius 3, accent on `bar.track`.
+pub fn share_bar(theme: &Theme) -> progress_bar::Style {
+    let tokens = tokens(theme);
+    progress_bar::Style {
+        background: tokens.bar_track.into(),
+        bar: tokens.accent.into(),
+        border: Border {
+            radius: 3.0.into(),
+            ..Border::default()
+        },
+    }
+}
+
+pub fn thin_scrollbar(theme: &Theme, status: scrollable::Status) -> scrollable::Style {
+    let tokens = tokens(theme);
+    let mut style = scrollable::default(theme, status);
+    let scroller = scrollable::Scroller {
+        background: tokens.border_strong.into(),
+        border: Border {
+            radius: 4.0.into(),
+            ..Border::default()
+        },
+    };
+    style.vertical_rail = scrollable::Rail {
+        background: None,
+        border: Border::default(),
+        scroller,
+    };
+    style
+}
+
+pub fn text_warning(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(tokens(theme).status_warning),
+    }
+}
+
+/// The dark "!" on the filled amber badge.
+pub fn text_on_warning(_theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(LIGHT.text_primary),
+    }
+}
+
+/// Filled amber badge: the folder itself couldn't be read.
+pub fn warning_badge(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(tokens(theme).status_warning.into()),
+        border: Border {
+            radius: 4.0.into(),
+            ..Border::default()
+        },
+        ..container::Style::default()
+    }
+}
+
+/// Outline badge: something inside couldn't be read.
+pub fn warning_outline(theme: &Theme) -> container::Style {
+    container::Style {
+        border: Border {
+            color: tokens(theme).status_warning,
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        ..container::Style::default()
     }
 }

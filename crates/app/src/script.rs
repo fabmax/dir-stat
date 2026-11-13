@@ -3,7 +3,8 @@
 //! - `DIRSTAT_SCREENSHOT=<file.png>` (+ `DIRSTAT_SCREENSHOT_AFTER_MS`, default 1500): take one
 //!   screenshot and exit.
 //! - `DIRSTAT_SCRIPT="path:/tmp;wait:1500;key:Stop;shot:a.png"`: run the steps, then exit.
-//!   `path:<dir>` scans a folder, `key:<KeyAction>` presses a shortcut by its action name.
+//!   `path:<dir>` scans a folder, `key:<KeyAction>` presses a shortcut by its action name,
+//!   `expand:<rel>` toggles a folder given relative to the scan root.
 //!
 //! `ICED_THEME=Light|Dark` is read by iced itself and forces the theme.
 
@@ -19,6 +20,8 @@ pub enum Step {
     Shot(PathBuf),
     Path(PathBuf),
     Key(KeyAction),
+    /// Toggle a folder, by path relative to the scan root.
+    Expand(PathBuf),
 }
 
 /// What the app should do on this tick.
@@ -28,6 +31,7 @@ pub enum Due {
     Shot(PathBuf),
     Path(PathBuf),
     Key(KeyAction),
+    Expand(PathBuf),
     Done,
 }
 
@@ -77,6 +81,7 @@ impl Script {
                 }
                 Some(Step::Path(path)) => return Due::Path(path),
                 Some(Step::Key(action)) => return Due::Key(action),
+                Some(Step::Expand(rel)) => return Due::Expand(rel),
             }
         }
         Due::Nothing
@@ -97,11 +102,12 @@ pub fn parse(spec: &str) -> Result<Vec<Step>, String> {
             Some(("wait", ms)) => parse_ms(ms).map(Step::Wait),
             Some(("shot", path)) if !path.is_empty() => Ok(Step::Shot(path.into())),
             Some(("path", path)) if !path.is_empty() => Ok(Step::Path(path.into())),
+            Some(("expand", rel)) if !rel.is_empty() => Ok(Step::Expand(rel.into())),
             Some(("key", name)) => KeyAction::from_name(name)
                 .map(Step::Key)
                 .ok_or_else(|| format!("unknown key action {name:?}")),
             _ => Err(format!(
-                "unsupported script step {step:?} (supported: wait:<ms>, shot:<file.png>, path:<dir>, key:<action>)"
+                "unsupported script step {step:?} (supported: wait:<ms>, shot:<file.png>, path:<dir>, key:<action>, expand:<rel>)"
             )),
         })
         .collect()
