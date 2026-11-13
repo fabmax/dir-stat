@@ -29,6 +29,7 @@ fn app() -> App {
         mounts: Vec::new(),
         fda: None,
         system_name: "Test Disk".into(),
+        home: None,
     };
     App::new(env, Cli::default()).0
 }
@@ -163,4 +164,78 @@ fn escape_stops_a_scan() {
     let _ = app.update(Message::Scan(id, Update::Started(builder.root_info())));
     let _ = app.update(Message::Key(crate::keys::KeyAction::Escape));
     assert_eq!(results(&app).phase, Phase::Stopped);
+}
+
+fn completed(app: &mut App, builder: &TreeBuilder) -> crate::results::scan_task::ScanId {
+    let id = app.start_simulated("/r");
+    let _ = app.update(Message::Scan(id, Update::Started(builder.root_info())));
+    let _ = app.update(Message::Scan(id, batch(builder.listings())));
+    let _ = app.update(Message::Scan(id, Update::Finished(Summary::default())));
+    id
+}
+
+#[test]
+fn zoom_in_out_and_back_through_the_app() {
+    use crate::keys::KeyAction::*;
+    use crate::results::rows::RowKey;
+    let mut app = app();
+    let builder = TreeBuilder::new(
+        "/r",
+        dir("r")
+            .child(dir("big").small_files(1, 900_000).child(dir("inner")))
+            .child(dir("b")),
+    );
+    completed(&mut app, &builder);
+    let big = RowKey::Dir(NodeId(1));
+    let _ = app.update(Message::Key(Down));
+    assert_eq!(results(&app).view.selection, Some(big));
+    let _ = app.update(Message::Key(Enter));
+    assert_eq!(results(&app).view.zoom, NodeId(1));
+    assert_eq!(app.title(), "big — dir-stat");
+    let _ = app.update(Message::Key(Back));
+    let r = results(&app);
+    assert_eq!(
+        (r.view.zoom, r.view.selection),
+        (NodeId::ROOT, Some(big)),
+        "Back restores the selection"
+    );
+    let _ = app.update(Message::Key(Forward));
+    let _ = app.update(Message::Key(ZoomOut));
+    assert_eq!(
+        results(&app).view.selection,
+        Some(big),
+        "zooming out selects the folder we came from"
+    );
+    let _ = app.update(Message::ZoomTo(NodeId(1)));
+    let _ = app.update(Message::ZoomTo(NodeId::ROOT));
+    assert_eq!(
+        results(&app).view.selection,
+        Some(big),
+        "a breadcrumb click too"
+    );
+}
+
+#[test]
+fn copy_path_toasts_and_stale_listings_are_ignored() {
+    use crate::results::rows::{RowKey, SmallFiles};
+    let mut app = app();
+    let builder = TreeBuilder::new("/r", dir("r").child(dir("a").small_files(5, 5000)));
+    let id = completed(&mut app, &builder);
+    let _ = app.update(Message::RowPressed(RowKey::Dir(NodeId(1))));
+    let _ = app.update(Message::CopySelection);
+    assert!(app.toast_text().is_some_and(|t| t == "Copied path"));
+
+    let _ = app.update(Message::ToggleExpand(RowKey::Dir(NodeId(1))));
+    let _ = app.update(Message::ToggleExpand(RowKey::Aggregate(NodeId(1))));
+    let stale = crate::results::scan_task::ScanId(id.0 + 100);
+    let _ = app.update(Message::SmallFilesListed(stale, NodeId(1), Ok(Vec::new())));
+    let small = &results(&app).view.open_aggregates[&NodeId(1)].small;
+    assert_eq!(
+        small,
+        &SmallFiles::Loading,
+        "a listing for another scan is dropped"
+    );
+    let _ = app.update(Message::SmallFilesListed(id, NodeId(1), Err("gone".into())));
+    let small = &results(&app).view.open_aggregates[&NodeId(1)].small;
+    assert_eq!(small, &SmallFiles::Failed("gone".into()));
 }

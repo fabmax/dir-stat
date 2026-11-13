@@ -1578,6 +1578,13 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
 - On-demand small-file listing (`smallfiles.rs`, `SmallFile` and `MoreFiles` rows, "Listing files…").
 - Window title.
 - *Accept:* every UX §6.4 MUST shortcut works on macOS (manual checklist, including ⇧⌘R and ⌥⌘R on a real keyboard) and is covered by the `keys` tests; zoom in, out and back restores selection and scroll (app-level test); expanding "≡ N files" in a 3,000-file directory lists them in batches of 50.
+- *Done 2026-11-13.* Notes:
+  - **Fixed from M5:** the exact re-sort on completion was never wired (a silent edit miss); the app-level zoom test caught it.
+  - The real-keyboard check of ⇧⌘R and ⌥⌘R is still open: it needs a person at the keyboard. The bindings are covered by the `keys` tests and the script harness.
+  - The selection bar shows Reveal and Copy Path (and Scan This Volume, Open Privacy Settings); Rescan comes with M10 and Move to Trash… with M8.
+  - Focus moves between panes once the cleanup pane exists (M9). Type-to-select and the shortcut overlay (SHOULD) are not built.
+  - Small files and the remaining kept files form one list below the aggregate, revealed in batches of 50 ("Show N more").
+  - The path bar's share reads "· 63% of <scan root>"; "of disk" for volume roots needs the volume capacity in the estimate (M11).
 
 **M7 — Errors and permissions**
 - Badges (self vs. inside), tooltips by `ErrorClass`.

@@ -2,9 +2,11 @@
 
 pub mod activity;
 pub mod columns;
+pub mod nav;
 pub mod order;
 pub mod rows;
 pub mod scan_task;
+pub mod selection_bar;
 pub mod tree_view;
 
 use std::path::PathBuf;
@@ -18,7 +20,7 @@ use activity::ActivityModel;
 use order::Column;
 use rows::RowKey;
 use scan_task::{ActiveScan, ScanId};
-use tree_view::TreeView;
+use tree_view::{Effect, TreeView};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
@@ -47,6 +49,8 @@ pub struct Results {
     pub view: TreeView,
     /// Set when the rows moved under the anchor; the app turns it into a `scroll_to`.
     pub scroll_to: Option<f32>,
+    /// The full scan this screen shows; results of background jobs carry it.
+    pub scan_id: ScanId,
 }
 
 /// What a scan update means for the screen.
@@ -77,6 +81,7 @@ impl Results {
         active: ActiveScan,
     ) -> Results {
         Results {
+            scan_id: active.id,
             tree: Tree::opening(root),
             phase: Phase::Opening,
             active: Some(active),
@@ -131,6 +136,10 @@ impl Results {
                         Phase::Complete
                     };
                     self.active = None;
+                    // Completion: one exact re-sort, anchored to the selection.
+                    if self.tree.is_started() {
+                        self.scroll_to = self.view.settle(&self.tree, now);
+                    }
                 } else {
                     self.draining = None;
                 }
@@ -180,13 +189,82 @@ impl Results {
         }
     }
 
-    pub fn toggle(&mut self, key: RowKey, now: Instant) {
-        if self.tree.is_started() {
+    /// Takes the scroll request out of an effect and hands back the rest.
+    fn effect(&mut self, effect: Effect) -> Effect {
+        if effect.scroll.is_some() {
+            self.scroll_to = effect.scroll;
+        }
+        effect
+    }
+
+    pub fn toggle(&mut self, key: RowKey, now: Instant) -> Effect {
+        if !self.tree.is_started() {
+            return Effect::default();
+        }
+        let effect = self.view.toggle(&mut self.tree, key, now);
+        self.effect(effect)
+    }
+
+    pub fn press(&mut self, key: RowKey, now: Instant) -> Effect {
+        let effect = self.view.press(&self.tree, key, now);
+        self.effect(effect)
+    }
+
+    pub fn activate(&mut self, key: RowKey, now: Instant) -> Effect {
+        let effect = self.view.activate(&mut self.tree, key, now);
+        self.effect(effect)
+    }
+
+    pub fn key(&mut self, action: crate::keys::KeyAction, now: Instant) -> Effect {
+        if !self.tree.is_started() {
+            return Effect::default();
+        }
+        let effect = self.view.key(&mut self.tree, action, now);
+        self.effect(effect)
+    }
+
+    pub fn zoom_to(&mut self, id: dirstat_core::tree::NodeId, now: Instant) {
+        // Zooming out to an ancestor selects the folder on the way, as in Finder.
+        let from = self
+            .tree
+            .ancestors(self.view.zoom)
+            .take_while(|&a| a != id)
+            .last()
+            .unwrap_or(self.view.zoom);
+        let select =
+            (self.tree.is_within(self.view.zoom, id) && from != id).then_some(RowKey::Dir(from));
+        self.scroll_to = self
+            .view
+            .zoom_to(&self.tree, id, select, now)
+            .or(self.scroll_to);
+    }
+
+    pub fn small_files_listed(
+        &mut self,
+        dir: dirstat_core::tree::NodeId,
+        result: Result<Vec<dirstat_core::smallfiles::SmallFile>, String>,
+        now: Instant,
+    ) {
+        if self.tree.get(dir).is_some() {
             self.scroll_to = self
                 .view
-                .toggle(&mut self.tree, key, now)
+                .small_files_listed(&self.tree, dir, result, now)
                 .or(self.scroll_to);
         }
+    }
+
+    /// The path a row stands for (an aggregate or placeholder: its folder).
+    pub fn path_for(&self, key: RowKey) -> Option<PathBuf> {
+        let dir = self.tree.get(key.dir())?;
+        let dir_path = self.tree.path_of(key.dir());
+        Some(match key {
+            RowKey::File(_, index) => dir_path.join(&*dir.large_files().get(index as usize)?.name),
+            RowKey::SmallFile(id, index) => match &self.view.open_aggregates.get(&id)?.small {
+                rows::SmallFiles::Loaded(files) => dir_path.join(&*files.get(index as usize)?.name),
+                _ => return None,
+            },
+            _ => dir_path,
+        })
     }
 
     pub fn sort_by(&mut self, column: Column, now: Instant) {

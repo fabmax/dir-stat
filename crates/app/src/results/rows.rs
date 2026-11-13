@@ -1,16 +1,58 @@
 //! The flattened row list and its virtualization (design §6.6). Rows are keys only; values
 //! are read live from the tree when visible rows are drawn.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
+use dirstat_core::smallfiles::SmallFile;
 use dirstat_core::tree::{NodeFlags, NodeId, NodeState, Tree};
 
 use super::order::{ChildKey, ChildOrder, split_files};
 
 pub const ROW_H: f32 = 28.0;
 const OVERSCAN: usize = 6;
-/// Kept files listed per expanded aggregate row.
+/// Files listed per batch below an expanded aggregate row.
 pub const FILE_BATCH: usize = 50;
+
+/// The on-demand listing of a folder's small files.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SmallFiles {
+    Loading,
+    Loaded(Vec<SmallFile>),
+    Failed(String),
+}
+
+/// An expanded "≡ N files" row: the remaining kept files, then the small files once listed,
+/// revealed in batches.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenAggregate {
+    pub shown: usize,
+    pub small: SmallFiles,
+}
+
+impl Default for OpenAggregate {
+    fn default() -> Self {
+        OpenAggregate {
+            shown: FILE_BATCH,
+            small: SmallFiles::Loading,
+        }
+    }
+}
+
+/// The file rows below an open aggregate, and whether more remain behind a "MoreFiles" row.
+pub fn aggregate_entries(tree: &Tree, dir: NodeId, open: &OpenAggregate) -> (Vec<RowKey>, bool) {
+    let split = split_files(tree.node(dir));
+    let mut entries: Vec<RowKey> = split
+        .kept_rest
+        .iter()
+        .map(|&i| RowKey::File(dir, i))
+        .collect();
+    if let SmallFiles::Loaded(files) = &open.small {
+        entries.extend((0..files.len() as u32).map(|i| RowKey::SmallFile(dir, i)));
+    }
+    let more = entries.len() > open.shown || !matches!(open.small, SmallFiles::Loaded(_));
+    entries.truncate(open.shown);
+    (entries, more)
+}
 
 /// What a row shows. Stable across re-orders.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -20,7 +62,9 @@ pub enum RowKey {
     File(NodeId, u32),
     /// "≡ 1,234 files".
     Aggregate(NodeId),
-    /// "and 1,190 smaller files".
+    /// A folder and an index into its on-demand small-file listing.
+    SmallFile(NodeId, u32),
+    /// "Show 50 more" / "Listing files…" / "and 1,190 smaller files".
     MoreFiles(NodeId),
     /// "Waiting to be scanned…" / "This folder is empty."
     Placeholder(NodeId),
@@ -33,6 +77,7 @@ impl RowKey {
             RowKey::Dir(id)
             | RowKey::File(id, _)
             | RowKey::Aggregate(id)
+            | RowKey::SmallFile(id, _)
             | RowKey::MoreFiles(id)
             | RowKey::Placeholder(id) => id,
         }
@@ -93,7 +138,7 @@ pub fn build(
     tree: &Tree,
     zoom: NodeId,
     orders: &HashMap<NodeId, ChildOrder>,
-    open_aggregates: &HashSet<NodeId>,
+    open_aggregates: &HashMap<NodeId, OpenAggregate>,
 ) -> Vec<Row> {
     let mut rows = Vec::new();
     if tree.get(zoom).is_some() {
@@ -107,7 +152,7 @@ fn push_children(
     dir: NodeId,
     depth: u16,
     orders: &HashMap<NodeId, ChildOrder>,
-    open_aggregates: &HashSet<NodeId>,
+    open_aggregates: &HashMap<NodeId, OpenAggregate>,
     rows: &mut Vec<Row>,
 ) {
     let node = tree.node(dir);
@@ -148,16 +193,13 @@ fn push_children(
                     key: RowKey::Aggregate(dir),
                     depth,
                 });
-                if open_aggregates.contains(&dir) {
-                    let split = split_files(node);
-                    for &index in split.kept_rest.iter().take(FILE_BATCH) {
-                        rows.push(Row {
-                            key: RowKey::File(dir, index),
-                            depth: depth + 1,
-                        });
-                    }
-                    let listed = split.kept_rest.len().min(FILE_BATCH) as u64;
-                    if split.aggregate_count > listed {
+                if let Some(open) = open_aggregates.get(&dir) {
+                    let (entries, more) = aggregate_entries(tree, dir, open);
+                    rows.extend(entries.into_iter().map(|key| Row {
+                        key,
+                        depth: depth + 1,
+                    }));
+                    if more {
                         rows.push(Row {
                             key: RowKey::MoreFiles(dir),
                             depth: depth + 1,
@@ -254,7 +296,12 @@ mod tests {
         tree.set_flag(a1, NodeFlags::EXPANDED, true);
         tree.set_flag(b, NodeFlags::EXPANDED, true);
         let orders = orders_for(&tree, &[NodeId::ROOT, a, a1, b]);
-        let rows = build(&tree, NodeId::ROOT, &orders, &HashSet::from([a]));
+        let rows = build(
+            &tree,
+            NodeId::ROOT,
+            &orders,
+            &HashMap::from([(a, OpenAggregate::default())]),
+        );
         let keys: Vec<(RowKey, u16)> = rows.iter().map(|r| (r.key, r.depth)).collect();
         assert_eq!(
             keys,
@@ -297,7 +344,7 @@ mod tests {
         let top = NodeId(1);
         tree.set_flag(top, NodeFlags::EXPANDED, true);
         let mut orders = orders_for(&tree, &[NodeId::ROOT]);
-        let rows = build(&tree, NodeId::ROOT, &orders, &HashSet::new());
+        let rows = build(&tree, NodeId::ROOT, &orders, &HashMap::new());
         let viewport = Viewport {
             offset_y: 10.0 * ROW_H,
             height: 10.0 * ROW_H,
@@ -309,7 +356,7 @@ mod tests {
         let top_listing = listings.find(|l| l.id == top).unwrap();
         tree.apply(top_listing);
         orders.insert(top, exact(&tree, top, Sort::default()));
-        let rebuilt = build(&tree, NodeId::ROOT, &orders, &HashSet::new());
+        let rebuilt = build(&tree, NodeId::ROOT, &orders, &HashMap::new());
         assert_eq!(rebuilt.len(), rows.len() + 2);
         let offset = restore(&tree, &rebuilt, viewport, anchor);
         assert_eq!(offset, 12.0 * ROW_H, "the anchored row keeps its y");
@@ -327,7 +374,7 @@ mod tests {
         let big = NodeId(1);
         tree.set_flag(big, NodeFlags::EXPANDED, true);
         let orders = orders_for(&tree, &[NodeId::ROOT, big]);
-        let long = build(&tree, NodeId::ROOT, &orders, &HashSet::new());
+        let long = build(&tree, NodeId::ROOT, &orders, &HashMap::new());
         let viewport = Viewport {
             offset_y: 250.0 * ROW_H,
             height: 20.0 * ROW_H,
@@ -335,7 +382,7 @@ mod tests {
         let anchor = anchor(&long, viewport, Some(RowKey::Dir(NodeId(260)))).unwrap();
 
         tree.set_flag(big, NodeFlags::EXPANDED, false);
-        let short = build(&tree, NodeId::ROOT, &orders, &HashSet::new());
+        let short = build(&tree, NodeId::ROOT, &orders, &HashMap::new());
         let offset = restore(&tree, &short, viewport, anchor);
         assert_eq!(offset, 0.0, "clamped to the short list");
         let (first, last) = range(offset, viewport.height, short.len());
@@ -353,7 +400,7 @@ mod tests {
             &tree,
             NodeId::ROOT,
             &orders_for(&tree, &[NodeId::ROOT]),
-            &HashSet::new(),
+            &HashMap::new(),
         );
         let viewport = Viewport {
             offset_y: 5.0 * ROW_H,

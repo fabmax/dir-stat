@@ -484,3 +484,54 @@ pub fn warning_outline(theme: &Theme) -> container::Style {
         ..container::Style::default()
     }
 }
+
+/// "Show 50 more" and other clickable text.
+pub fn text_accent_link(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(tokens(theme).accent_text),
+    }
+}
+
+/// The selection bar: window background below a hairline.
+pub fn selection_bar(theme: &Theme) -> container::Style {
+    let tokens = tokens(theme);
+    container::Style {
+        background: Some(tokens.bg_window.into()),
+        text_color: Some(tokens.text_primary),
+        ..container::Style::default()
+    }
+}
+
+/// A toast: raised, radius 8, with the token shadow.
+pub fn toast(theme: &Theme) -> container::Style {
+    let tokens = tokens(theme);
+    container::Style {
+        background: Some(tokens.bg_raised.into()),
+        border: Border {
+            color: tokens.border_hairline,
+            width: 1.0,
+            radius: 8.0.into(),
+        },
+        shadow: iced::Shadow {
+            color: tokens.shadow,
+            offset: iced::Vector::new(0.0, 8.0),
+            blur_radius: 24.0,
+        },
+        text_color: Some(tokens.text_primary),
+        ..container::Style::default()
+    }
+}
+
+/// The × on a sticky error toast.
+pub fn icon_button(theme: &Theme, status: button::Status) -> button::Style {
+    let tokens = tokens(theme);
+    button::Style {
+        background: (status == button::Status::Hovered).then(|| tokens.bg_hover.into()),
+        text_color: tokens.text_secondary,
+        border: Border {
+            radius: 4.0.into(),
+            ..Border::default()
+        },
+        ..button::Style::default()
+    }
+}

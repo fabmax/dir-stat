@@ -12,7 +12,7 @@ use iced::{Center, Element, Fill, Length, Right, mouse};
 
 use super::Results;
 use super::order::{Column as SortColumn, split_files};
-use super::rows::{self, ROW_H, Row, RowKey};
+use super::rows::{self, OpenAggregate, ROW_H, Row, RowKey, SmallFiles};
 use crate::app::Message;
 use crate::theme::{self, TextRole};
 use crate::{fonts, format, widgets};
@@ -242,11 +242,7 @@ fn row_view<'a>(
             theme::BODY.size,
         ))
         .wrapping(text::Wrapping::None)
-        .style(move |t| match cells.name_tone {
-            Tone::Primary => theme::text_primary(t),
-            Tone::Secondary => theme::text_secondary(t),
-            Tone::Muted => theme::text_muted(t),
-        });
+        .style(move |t| tone_style(t, cells.name_tone));
     let name: Element<'a, Message> = match &cells.name_tip {
         Some(tip) => tooltip(name, tip_box(tip.clone()), tooltip::Position::Bottom)
             .delay(TOOLTIP_DELAY)
@@ -260,11 +256,7 @@ fn row_view<'a>(
 
     let size_text = theme::BODY
         .text(cells.size)
-        .style(move |t| match cells.size_tone {
-            Tone::Primary => theme::text_primary(t),
-            Tone::Secondary => theme::text_secondary(t),
-            Tone::Muted => theme::text_muted(t),
-        });
+        .style(move |t| tone_style(t, cells.size_tone));
     let marker = match cells.marker {
         Marker::None => Element::from(space().width(10)),
         Marker::Waiting => theme::SMALL
@@ -353,11 +345,10 @@ fn row_view<'a>(
         .width(Fill)
         .height(Fill)
         .style(theme::row_hover);
-    let mut area = mouse_area(hover(base, highlight)).on_press(Message::RowPressed(r.key));
-    if cells.disclosure.is_some() {
-        area = area.on_double_click(Message::ToggleExpand(r.key));
-    }
-    area.into()
+    mouse_area(hover(base, highlight))
+        .on_press(Message::RowPressed(r.key))
+        .on_double_click(Message::RowActivated(r.key))
+        .into()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -365,6 +356,8 @@ pub enum Tone {
     Primary,
     Secondary,
     Muted,
+    /// A clickable row ("Show 50 more").
+    Accent,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -408,7 +401,7 @@ pub fn cells_for(
     tree: &Tree,
     key: RowKey,
     zoom: NodeId,
-    open_aggregates: &std::collections::HashSet<NodeId>,
+    open_aggregates: &std::collections::HashMap<NodeId, OpenAggregate>,
     now: Instant,
     started: Instant,
 ) -> Cells {
@@ -558,7 +551,7 @@ pub fn cells_for(
             let node = tree.node(dir);
             let split = split_files(node);
             cells.icon = "≡";
-            cells.disclosure = Some(open_aggregates.contains(&dir));
+            cells.disclosure = Some(open_aggregates.contains_key(&dir));
             let noun = if split.shown.is_empty() {
                 "file"
             } else {
@@ -577,12 +570,54 @@ pub fn cells_for(
             cells.share = Some((fraction, tip));
             cells.percent = percent;
         }
+        RowKey::SmallFile(dir, index) => {
+            let Some(SmallFiles::Loaded(files)) = open_aggregates.get(&dir).map(|o| &o.small)
+            else {
+                return cells;
+            };
+            let Some(file) = files.get(index as usize) else {
+                return cells;
+            };
+            cells.name = file.name.to_string_lossy().into_owned();
+            cells.name_tip = Some(tree.path_of(dir).join(&*file.name).display().to_string());
+            cells.size = format::size(file.alloc);
+            cells.size_tone = Tone::Secondary;
+            cells.size_tip = Some(bytes_tip(file.alloc, file.apparent));
+            let (fraction, tip, percent) = share(file.alloc, dir);
+            cells.share = Some((fraction, tip));
+            cells.percent = percent;
+        }
         RowKey::MoreFiles(dir) => {
-            let split = split_files(tree.node(dir));
-            let listed = split.kept_rest.len().min(rows::FILE_BATCH) as u64;
-            let rest = split.aggregate_count.saturating_sub(listed);
-            cells.name = format!("and {} smaller", format::plural(rest, "file", "files"));
             cells.name_tone = Tone::Muted;
+            let Some(open) = open_aggregates.get(&dir) else {
+                return cells;
+            };
+            let all = rows::aggregate_entries(
+                tree,
+                dir,
+                &OpenAggregate {
+                    shown: usize::MAX,
+                    ..open.clone()
+                },
+            )
+            .0
+            .len();
+            let split = split_files(tree.node(dir));
+            cells.name = if all > open.shown {
+                cells.name_tone = Tone::Accent;
+                format!("Show {} more", (all - open.shown).min(rows::FILE_BATCH))
+            } else {
+                match &open.small {
+                    SmallFiles::Loading => "Listing files…".into(),
+                    SmallFiles::Failed(error) => format!("Couldn't list the files: {error}"),
+                    SmallFiles::Loaded(_) => {
+                        let rest = split
+                            .aggregate_count
+                            .saturating_sub(split.kept_rest.len() as u64);
+                        format!("and {} smaller", format::plural(rest, "file", "files"))
+                    }
+                }
+            };
         }
         RowKey::Placeholder(dir) => {
             let pending = tree.node(dir).state() == NodeState::Pending;
@@ -595,6 +630,15 @@ pub fn cells_for(
         }
     }
     cells
+}
+
+fn tone_style(theme: &iced::Theme, tone: Tone) -> iced::widget::text::Style {
+    match tone {
+        Tone::Primary => theme::text_primary(theme),
+        Tone::Secondary => theme::text_secondary(theme),
+        Tone::Muted => theme::text_muted(theme),
+        Tone::Accent => theme::text_accent_link(theme),
+    }
 }
 
 fn display_name(tree: &Tree, id: NodeId) -> String {
@@ -655,11 +699,11 @@ fn tip_box<'a>(content: impl Into<String>) -> Element<'a, Message> {
 mod tests {
     use super::*;
     use dirstat_core::tree::testing::{TreeBuilder, dir, large};
-    use std::collections::HashSet;
+    use std::collections::HashMap;
 
     fn cells(tree: &Tree, key: RowKey) -> Cells {
         let now = Instant::now();
-        cells_for(tree, key, NodeId::ROOT, &HashSet::new(), now, now)
+        cells_for(tree, key, NodeId::ROOT, &HashMap::new(), now, now)
     }
 
     #[test]
@@ -701,7 +745,7 @@ mod tests {
             &tree,
             RowKey::Dir(NodeId::ROOT),
             NodeId::ROOT,
-            &HashSet::new(),
+            &HashMap::new(),
             Instant::now(),
             Instant::now(),
         );

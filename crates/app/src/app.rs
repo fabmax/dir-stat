@@ -7,6 +7,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use dirstat_core::catalog::{Engine, Resolver};
 use dirstat_core::platform::{self, Mount};
 use dirstat_core::scan::{Options, ScanRequest, StartError, Update};
+use dirstat_core::smallfiles::{self, SmallFile};
 use dirstat_core::tree::NodeId;
 use dirstat_core::volumes::{self, CardKind, VolumeCard};
 use iced::widget::{button, center, column, container, operation, row, scrollable, space, stack};
@@ -19,9 +20,10 @@ use crate::prefs::{JsonPrefs, Prefs, PrefsStore};
 use crate::results::order::Column;
 use crate::results::rows::RowKey;
 use crate::results::scan_task::{self, ScanIdGen};
-use crate::results::{Results, ScanOutcome, StopOutcome, activity, columns};
+use crate::results::tree_view::Effect;
+use crate::results::{Results, ScanOutcome, StopOutcome, activity, columns, nav, selection_bar};
 use crate::start::{self, StartState};
-use crate::{Cli, format, theme};
+use crate::{Cli, theme};
 
 /// Everything the app gets from the outside world. `App::boot` builds the real one; tests
 /// build one without disk or settings.
@@ -33,6 +35,7 @@ pub struct Env {
     pub mounts: Vec<Mount>,
     pub fda: Option<bool>,
     pub system_name: String,
+    pub home: Option<PathBuf>,
 }
 
 pub enum Screen {
@@ -49,6 +52,7 @@ pub struct App {
     /// From any mouse event, also ones rows capture (calm sorting waits while held).
     left_button_held: bool,
     pointer_in_tree: bool,
+    toast: Option<Toast>,
     scan_ids: ScanIdGen,
     #[cfg(feature = "screenshot")]
     script: Option<crate::script::Script>,
@@ -77,13 +81,22 @@ pub enum Message {
     // tree
     TreeScrolled(scrollable::Viewport),
     RowPressed(RowKey),
+    /// Double-click: zoom into a folder, reveal a file, open the aggregate.
+    RowActivated(RowKey),
+    ZoomTo(NodeId),
+    SmallFilesListed(scan_task::ScanId, NodeId, Result<Vec<SmallFile>, String>),
     ToggleExpand(RowKey),
     SortBy(Column),
     /// Calm sorting inputs (design §6.7).
     PointerIn(bool),
     PointerMoved,
     LeftButton(bool),
+    // selection bar
+    RevealSelection,
+    CopySelection,
+    ScanSelection,
     // chrome
+    DismissToast,
     Key(KeyAction),
     WindowResized(Size),
     PlatformResult(Result<(), String>),
@@ -108,6 +121,7 @@ impl App {
             mounts,
             fda: platform::full_disk_access(),
             system_name,
+            home: platform::home_dir(),
         };
         let (app, task) = App::new(env, cli);
         #[cfg(feature = "screenshot")]
@@ -133,6 +147,7 @@ impl App {
             drag_hover: false,
             left_button_held: false,
             pointer_in_tree: false,
+            toast: None,
             scan_ids: ScanIdGen::default(),
             #[cfg(feature = "screenshot")]
             script: None,
@@ -147,7 +162,15 @@ impl App {
 
     pub fn title(&self) -> String {
         match &self.screen {
-            Screen::Results(r) => format!("{} — dir-stat", r.title),
+            Screen::Results(r) => {
+                let zoom = r.view.zoom;
+                let name = if zoom == NodeId::ROOT || !r.tree.is_started() {
+                    r.title.clone()
+                } else {
+                    r.tree.node(zoom).name().to_string_lossy().into_owned()
+                };
+                format!("{name} — dir-stat")
+            }
             Screen::Start(_) => "dir-stat".into(),
         }
     }
@@ -218,14 +241,56 @@ impl App {
             }
             Message::RowPressed(key) => {
                 if let Screen::Results(r) = &mut self.screen {
-                    r.view.select(key, Instant::now());
+                    let effect = r.press(key, Instant::now());
+                    return self.apply(effect);
+                }
+            }
+            Message::RowActivated(key) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    let effect = r.activate(key, Instant::now());
+                    return self.apply(effect);
                 }
             }
             Message::ToggleExpand(key) => {
                 if let Screen::Results(r) = &mut self.screen {
-                    r.toggle(key, Instant::now());
+                    let effect = r.toggle(key, Instant::now());
+                    return self.apply(effect);
                 }
             }
+            Message::ZoomTo(id) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.zoom_to(id, Instant::now());
+                }
+            }
+            Message::SmallFilesListed(id, dir, result) => {
+                if let Screen::Results(r) = &mut self.screen
+                    && r.scan_id == id
+                {
+                    r.small_files_listed(dir, result, Instant::now());
+                }
+            }
+            Message::RevealSelection | Message::CopySelection => {
+                if let Screen::Results(r) = &self.screen
+                    && let Some(key) = r.view.selection
+                {
+                    let reveal = matches!(message, Message::RevealSelection);
+                    let effect = Effect {
+                        reveal: reveal.then_some(key),
+                        copy: (!reveal).then_some(key),
+                        ..Effect::default()
+                    };
+                    return self.apply(effect);
+                }
+            }
+            Message::ScanSelection => {
+                if let Screen::Results(r) = &self.screen
+                    && let Some(key @ RowKey::Dir(_)) = r.view.selection
+                    && let Some(path) = r.path_for(key)
+                {
+                    return self.start_scan(path);
+                }
+            }
+            Message::DismissToast => self.toast = None,
             Message::SortBy(column) => {
                 if let Screen::Results(r) = &mut self.screen {
                     r.sort_by(column, Instant::now());
@@ -247,7 +312,7 @@ impl App {
             }
             Message::PlatformResult(result) => {
                 if let Err(error) = result {
-                    eprintln!("dir-stat: {error}");
+                    self.toast = Some(Toast::error(error));
                 }
             }
             #[cfg(feature = "screenshot")]
@@ -352,7 +417,10 @@ impl App {
             (Screen::Results(_), KeyAction::Escape | KeyAction::Stop) => self.stop(),
             (Screen::Results(_), KeyAction::NewScan) => self.show_start(None),
             (Screen::Results(_), KeyAction::RescanAll) => return self.update(Message::RescanAll),
-            _ => {}
+            (Screen::Results(r), action) => {
+                let effect = r.key(action, Instant::now());
+                return self.apply(effect);
+            }
         }
         Task::none()
     }
@@ -361,6 +429,9 @@ impl App {
         let button_held = self.left_button_held;
         if let Screen::Results(results) = &mut self.screen {
             results.tick(now, button_held);
+        }
+        if self.toast.as_ref().is_some_and(|t| t.expired(now)) {
+            self.toast = None;
         }
         #[cfg(feature = "screenshot")]
         if let Some(script) = &mut self.script {
@@ -409,7 +480,8 @@ impl App {
         if self.script.is_some() {
             return true;
         }
-        matches!(&self.screen, Screen::Results(r) if r.is_scanning())
+        let toast_expires = self.toast.as_ref().is_some_and(|t| !t.sticky);
+        toast_expires || matches!(&self.screen, Screen::Results(r) if r.is_scanning())
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -423,11 +495,65 @@ impl App {
                 .height(Fill)
                 .style(theme::drop_overlay)
         });
-        stack![base].push(overlay).into()
+        let toast = self.toast.as_ref().map(|t| {
+            let mut content = row![theme::BODY.text(t.text.clone())]
+                .spacing(12)
+                .align_y(Center);
+            if t.sticky {
+                content = content.push(
+                    button(theme::BODY.text("×"))
+                        .padding([0, 6])
+                        .style(theme::icon_button)
+                        .on_press(Message::DismissToast),
+                );
+            }
+            let bottom = if matches!(self.screen, Screen::Results(_)) {
+                52.0
+            } else {
+                24.0
+            };
+            container(container(content).padding([10, 16]).style(theme::toast))
+                .width(Fill)
+                .height(Fill)
+                .align_x(Center)
+                .align_bottom(Fill)
+                .padding(iced::Padding {
+                    bottom,
+                    ..iced::Padding::ZERO
+                })
+        });
+        stack![base].push(overlay).push(toast).into()
+    }
+
+    /// Carries out what a tree action asked for: listings, reveals, copies.
+    fn apply(&mut self, effect: Effect) -> Task<Message> {
+        let Screen::Results(r) = &self.screen else {
+            return Task::none();
+        };
+        let mut tasks = Vec::new();
+        if let Some(dir) = effect.list_small {
+            let (id, path) = (r.scan_id, r.tree.path_of(dir));
+            tasks.push(blocking(
+                move || smallfiles::list(&path),
+                move |result| Message::SmallFilesListed(id, dir, result),
+            ));
+        }
+        if let Some(path) = effect.reveal.and_then(|key| r.path_for(key)) {
+            tasks.push(blocking(
+                move || opener::reveal(&path).map_err(|e| format!("Couldn't reveal: {e}")),
+                Message::PlatformResult,
+            ));
+        }
+        if let Some(path) = effect.copy.and_then(|key| r.path_for(key)) {
+            tasks.push(iced::clipboard::write(path.display().to_string()));
+            self.toast = Some(Toast::info("Copied path"));
+        }
+        Task::batch(tasks)
     }
 
     fn results_view<'a>(&'a self, results: &'a Results) -> Element<'a, Message> {
-        let field_width = (self.window_size.width * 0.5).clamp(360.0, 640.0);
+        let width = self.window_size.width;
+        let field_width = (width * 0.5).clamp(360.0, 640.0);
         let new_scan = button(theme::BODY_STRONG.text("+ New Scan"))
             .padding([4, 12])
             .style(theme::secondary_button)
@@ -440,39 +566,21 @@ impl App {
         .align_y(Center)
         .padding([0, 12])
         .height(44);
-
-        let total = if results.tree.is_started() {
-            let alloc = results.tree.node(NodeId::ROOT).total().alloc;
-            if results.tree.is_lower_bound(NodeId::ROOT) || results.is_scanning() {
-                format::size_at_least(alloc)
-            } else {
-                format::size(alloc)
-            }
-        } else {
-            format::PENDING.into()
+        let rule = || {
+            container(space())
+                .width(Fill)
+                .height(1)
+                .style(theme::hairline)
         };
-        let path_bar = row![
-            theme::BODY
-                .text(results.tree.root_path().display().to_string())
-                .width(Fill),
-            theme::BODY_STRONG.text(total),
-        ]
-        .padding([0, 16])
-        .height(32)
-        .align_y(Center);
-
+        let home = self.env.home.as_deref();
         column![
             toolbar,
-            container(space())
-                .width(Fill)
-                .height(1)
-                .style(theme::hairline),
-            path_bar,
-            container(space())
-                .width(Fill)
-                .height(1)
-                .style(theme::hairline),
+            rule(),
+            nav::view(results, width, home),
+            rule(),
             columns::view(results, Instant::now()),
+            rule(),
+            selection_bar::view(results, width, home, unix_now()),
         ]
         .into()
     }
@@ -494,6 +602,12 @@ fn window_event(
         }
         iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
             Some(Message::LeftButton(false))
+        }
+        iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Back)) => {
+            Some(Message::Key(KeyAction::Back))
+        }
+        iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Forward)) => {
+            Some(Message::Key(KeyAction::Forward))
         }
         _ => None,
     }
@@ -593,5 +707,38 @@ impl App {
 
     pub fn prefs(&self) -> &Prefs {
         &self.prefs
+    }
+
+    pub fn toast_text(&self) -> Option<&str> {
+        self.toast.as_ref().map(|t| t.text.as_str())
+    }
+}
+
+/// A message over the selection bar. Info toasts expire after 4 s; errors stay until closed.
+pub struct Toast {
+    pub text: String,
+    pub sticky: bool,
+    shown_at: Instant,
+}
+
+impl Toast {
+    pub fn info(text: impl Into<String>) -> Toast {
+        Toast {
+            text: text.into(),
+            sticky: false,
+            shown_at: Instant::now(),
+        }
+    }
+
+    pub fn error(text: impl Into<String>) -> Toast {
+        Toast {
+            text: text.into(),
+            sticky: true,
+            shown_at: Instant::now(),
+        }
+    }
+
+    fn expired(&self, now: Instant) -> bool {
+        !self.sticky && now.saturating_duration_since(self.shown_at) >= Duration::from_secs(4)
     }
 }

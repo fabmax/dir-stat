@@ -5,6 +5,7 @@ pub mod catalog;
 pub mod git;
 pub mod platform;
 pub mod scan;
+pub mod smallfiles;
 pub mod trash;
 pub mod tree;
 pub mod volumes;
