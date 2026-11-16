@@ -601,18 +601,18 @@ mod cleanup_flow {
         let cargo = group(&app, Section::SafeToDelete, "cargo-target").key();
         let trash = group(&app, Section::ReviewFirst, "mac-trash").key();
 
-        // A multi-match group: no dialog, a toast.
+        // A multi-match group: one dialog for all of its folders.
         let _ = app.update(Message::Key(KeyAction::PaneCleanup));
         assert_eq!(results(&app).focus, Pane::Cleanup);
         if let Screen::Results(r) = &mut app.screen {
             r.cleanup.cursor = Some(Line::Group(cargo));
         }
         let _ = app.update(Message::Key(KeyAction::Trash));
-        assert!(app.modal().is_none());
-        assert_eq!(
-            app.toast_text(),
-            Some("Select one folder in the group to move it to the Trash.")
-        );
+        let Some(Modal::ConfirmBatch { batch, .. }) = app.modal() else {
+            panic!("{:?}", app.modal())
+        };
+        assert_eq!(batch.plans.len(), 2);
+        let _ = app.update(Message::Key(KeyAction::Escape));
 
         // A tool-only rule: the command instead.
         if let Screen::Results(r) = &mut app.screen {
@@ -1208,5 +1208,195 @@ mod map_flow {
         let _ = app.update(Message::PointerInMap(false));
         let _ = app.update(Message::Tick(t0 + std::time::Duration::from_secs(3)));
         assert_eq!(results(&app).map.clock.version, before + 1);
+    }
+}
+
+mod batch_flow {
+    use super::*;
+    use crate::keys::KeyAction;
+    use crate::results::cleanup::GroupKey;
+    use crate::results::trash::{Focus, Modal};
+    use dirstat_core::catalog::{Section, Verdict};
+    use dirstat_core::trash::{TrashError, TrashJobId, TrashOutcome};
+    use dirstat_core::tree::NodeFlags;
+
+    fn target(id: &str) -> Verdict {
+        Verdict::Target {
+            rule: engine().rule_by_id(id).unwrap(),
+            by_default: false,
+        }
+    }
+
+    /// Three cargo targets (Safe) next to a big folder, two node_modules (Review first).
+    fn scanned(app: &mut App) {
+        let proj = |name: &str, mb: u64| {
+            dir(name)
+                .child(
+                    dir("target")
+                        .verdict(target("cargo-target"))
+                        .small_files(1, mb * 1_000_000),
+                )
+                .child(
+                    dir("node_modules")
+                        .verdict(target("node-modules"))
+                        .small_files(1, 20_000_000),
+                )
+        };
+        let builder = TreeBuilder::new(
+            "/r",
+            dir("r")
+                .child(dir("photos").small_files(1, 2_000_000_000))
+                .child(proj("a", 50))
+                .child(proj("b", 40))
+                .child(
+                    dir("c").child(
+                        dir("target")
+                            .verdict(target("cargo-target"))
+                            .small_files(1, 30_000_000),
+                    ),
+                ),
+        );
+        completed(app, &builder);
+    }
+
+    fn group(app: &App, section: Section, rule: &str) -> GroupKey {
+        let rule = engine().rule_by_id(rule).unwrap();
+        results(app)
+            .cleanup
+            .model
+            .sections
+            .iter()
+            .find(|s| s.section == section)
+            .and_then(|s| s.groups.iter().chain(&s.small).find(|g| g.rule == rule))
+            .map(|g| g.key())
+            .unwrap_or_else(|| panic!("{:?}", results(app).cleanup.model))
+    }
+
+    fn finish(app: &mut App, id: u64, ok: bool) {
+        let r = results(app);
+        let pending = &r.trash_jobs[&TrashJobId(id)];
+        let path = r.tree.path_of(pending.target.dir());
+        let outcome = if ok {
+            TrashOutcome::Trashed(path)
+        } else {
+            TrashOutcome::Failed(path, TrashError::Changed)
+        };
+        let generation = r.tree_gen;
+        let _ = app.update(Message::TrashFinished(
+            TrashJobId(id),
+            generation,
+            vec![outcome],
+        ));
+    }
+
+    #[test]
+    fn safe_group_moves_together_with_one_dialog_and_one_toast() {
+        let mut app = app();
+        scanned(&mut app);
+        let cargo = group(&app, Section::SafeToDelete, "cargo-target");
+        let root_before = results(&app).tree.node(NodeId::ROOT).total().alloc;
+        let _ = app.update(Message::TrashGroup(cargo));
+        let Some(Modal::ConfirmBatch { batch, focus }) = app.modal() else {
+            panic!("{:?}", app.modal())
+        };
+        assert_eq!(batch.plans.len(), 3);
+        assert!(batch.skipped.is_empty());
+        assert_eq!(batch.title, "Move 3 folders to the Trash?");
+        assert!(
+            batch.subtitle.starts_with("Cargo target"),
+            "{}",
+            batch.subtitle
+        );
+        assert!(
+            batch.default_is_trash,
+            "clean Safe matches, a small share of the scan"
+        );
+        assert_eq!(*focus, Focus::Trash);
+        assert!(
+            results(&app).trash_jobs.is_empty(),
+            "nothing moves before confirming"
+        );
+
+        let _ = app.update(Message::Key(KeyAction::Enter));
+        assert!(app.modal().is_none());
+        let ids: Vec<u64> = {
+            let mut ids: Vec<u64> = results(&app).trash_jobs.keys().map(|k| k.0).collect();
+            ids.sort();
+            ids
+        };
+        assert_eq!(ids.len(), 3, "one job per folder");
+        for id in &ids {
+            let dir = results(&app).trash_jobs[&TrashJobId(*id)].target.dir();
+            assert!(
+                results(&app)
+                    .tree
+                    .node(dir)
+                    .has_flag(NodeFlags::TRASH_PENDING)
+            );
+        }
+        finish(&mut app, ids[0], true);
+        finish(&mut app, ids[1], true);
+        assert!(app.toast_text().is_none(), "no toast until the last one");
+        finish(&mut app, ids[2], true);
+        let toast = app.toast_text().unwrap();
+        assert!(
+            toast.starts_with("Moved 3 folders to the Trash. Empty the Trash to free"),
+            "{toast}"
+        );
+        assert_eq!(
+            results(&app).tree.node(NodeId::ROOT).total().alloc,
+            root_before - 120_000_000 - 3 * 4096,
+            "every folder left its ancestors"
+        );
+    }
+
+    #[test]
+    fn a_failure_in_a_batch_gives_a_sticky_summary() {
+        let mut app = app();
+        scanned(&mut app);
+        let cargo = group(&app, Section::SafeToDelete, "cargo-target");
+        let _ = app.update(Message::TrashGroup(cargo));
+        let _ = app.update(Message::ConfirmBatch);
+        let mut ids: Vec<u64> = results(&app).trash_jobs.keys().map(|k| k.0).collect();
+        ids.sort();
+        finish(&mut app, ids[0], true);
+        finish(&mut app, ids[1], false);
+        finish(&mut app, ids[2], true);
+        let toast = app.toast_text().unwrap();
+        assert!(
+            toast.starts_with("Moved 2 folders to the Trash; 1 didn't move."),
+            "{toast}"
+        );
+        assert!(results(&app).trash_batches.is_empty());
+    }
+
+    #[test]
+    fn review_groups_default_to_cancel_and_unfinished_folders_are_skipped() {
+        let mut app = app();
+        scanned(&mut app);
+        let modules = group(&app, Section::ReviewFirst, "node-modules");
+        let _ = app.update(Message::TrashGroup(modules));
+        let Some(Modal::ConfirmBatch { batch, focus }) = app.modal() else {
+            panic!("{:?}", app.modal())
+        };
+        assert!(!batch.default_is_trash);
+        assert_eq!(*focus, Focus::Cancel);
+        let _ = app.update(Message::Key(KeyAction::Enter));
+        assert!(
+            app.modal().is_none() && results(&app).trash_jobs.is_empty(),
+            "Return cancelled"
+        );
+
+        // A folder that is already being moved stays out of the batch, with its reason.
+        let cargo = group(&app, Section::SafeToDelete, "cargo-target");
+        let first = results(&app).cleanup.group(cargo).unwrap().items[0].candidate;
+        if let Screen::Results(r) = &mut app.screen {
+            r.tree.set_flag(first.dir(), NodeFlags::TRASH_PENDING, true);
+        }
+        let _ = app.update(Message::TrashGroup(cargo));
+        let Some(Modal::ConfirmBatch { batch, .. }) = app.modal() else {
+            panic!("{:?}", app.modal())
+        };
+        assert_eq!((batch.plans.len(), batch.skipped.len()), (2, 1));
     }
 }

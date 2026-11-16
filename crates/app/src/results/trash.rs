@@ -54,6 +54,140 @@ pub struct TrashPlan {
     pub shared_space: bool,
 }
 
+/// Several folders of one cleanup group in one dialog: every item planned on its own, with
+/// all guards; the ones that can't go are listed with their reason.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BatchPlan {
+    pub title: String,
+    /// "Cargo target · 124 GB"
+    pub subtitle: String,
+    pub reason: Option<(Option<Section>, String)>,
+    pub plans: Vec<TrashPlan>,
+    /// Name and why it stays.
+    pub skipped: Vec<(String, String)>,
+    pub warnings: Vec<String>,
+    /// Return moves them only if it would for every single item, and together they are at
+    /// most a quarter of the scan.
+    pub default_is_trash: bool,
+    pub frees: u64,
+    pub shared_space: bool,
+}
+
+/// At most this many warning lines in the batch dialog.
+const BATCH_WARNINGS: usize = 6;
+/// Folders listed by name in the batch dialog.
+pub const BATCH_LISTED: usize = 8;
+
+/// Plans every target of a cleanup group (D8 relaxed at the user's request, 2026-11-16).
+#[allow(clippy::too_many_arguments)]
+pub fn plan_batch(
+    results: &Results,
+    engine: &Engine,
+    guards: &Guards,
+    group_title: &str,
+    targets: &[TrashTarget],
+    git: impl Fn(CandidateRef) -> GitState,
+    now: SystemTime,
+) -> Result<BatchPlan, Refused> {
+    let mut plans = Vec::new();
+    let mut skipped = Vec::new();
+    for &target in targets {
+        match plan(results, engine, guards, target, &git, now) {
+            Ok(p) => plans.push(p),
+            Err(refused) => {
+                let name = results
+                    .tree
+                    .get(target.dir())
+                    .map(|n| n.name().to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                skipped.push((name, refused.message));
+            }
+        }
+    }
+    if plans.is_empty() {
+        return Err(Refused {
+            title: format!("Can't move these folders to the {TRASH_WORD}"),
+            message: skipped
+                .first()
+                .map(|(name, why)| format!("“{name}”: {why}"))
+                .unwrap_or_else(|| "Nothing left to move.".into()),
+        });
+    }
+    let frees: u64 = plans.iter().map(|p| p.frees).sum();
+    let shared_space = plans.iter().any(|p| p.shared_space);
+    let count = plans.len();
+    // Identical lines once; a line only some items have names them. Each item's "this is X%
+    // of everything scanned" gives way to one line for the whole batch.
+    let mut warnings: Vec<String> = Vec::new();
+    let mut seen: Vec<(String, Vec<&str>)> = Vec::new();
+    for p in &plans {
+        for w in &p.warnings {
+            if w.ends_with("of everything scanned.") {
+                continue;
+            }
+            match seen.iter_mut().find(|(text, _)| text == w) {
+                Some((_, names)) => names.push(&p.name),
+                None => seen.push((w.clone(), vec![&p.name])),
+            }
+        }
+    }
+    for (text, names) in &seen {
+        warnings.push(if names.len() == count {
+            text.clone()
+        } else if names.len() == 1 {
+            format!("“{}”: {text}", names[0])
+        } else {
+            format!("{} of them: {text}", names.len())
+        });
+    }
+    let root_total = results.tree.node(NodeId::ROOT).total().alloc;
+    let together = plans
+        .iter()
+        .filter_map(|p| results.tree.get(p.target.dir()).map(|n| n.total().alloc))
+        .sum::<u64>();
+    let big = root_total > 0 && together.saturating_mul(4) > root_total;
+    if big {
+        warnings.push(format!(
+            "Together this is {} of everything scanned.",
+            format::percent(together, root_total)
+        ));
+    }
+    if warnings.len() > BATCH_WARNINGS {
+        let more = warnings.len() - (BATCH_WARNINGS - 1);
+        warnings.truncate(BATCH_WARNINGS - 1);
+        warnings.push(format!(
+            "and {} more",
+            format::plural(more as u64, "warning", "warnings")
+        ));
+    }
+    let default_is_trash = !big && plans.iter().all(|p| p.default_is_trash);
+    // The catalog reason, if all items share it.
+    let reason = plans[0]
+        .reason
+        .clone()
+        .filter(|r| plans.iter().all(|p| p.reason.as_ref() == Some(r)));
+    let what = if plans
+        .iter()
+        .all(|p| matches!(p.target, TrashTarget::Dir(_)))
+    {
+        format::plural(count as u64, "folder", "folders")
+    } else {
+        format::plural(count as u64, "item", "items")
+    };
+    let up_to = if shared_space { "up to " } else { "" };
+    Ok(BatchPlan {
+        title: format!("Move {what} to the {TRASH_WORD}?"),
+        subtitle: format!("{group_title} · frees {up_to}{}", format::size(frees)),
+        reason,
+        plans,
+        skipped,
+        warnings,
+        default_is_trash,
+        frees,
+        shared_space,
+    })
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Focus {
     Cancel,
@@ -64,6 +198,10 @@ pub enum Focus {
 pub enum Modal {
     Confirm {
         plan: Box<TrashPlan>,
+        focus: Focus,
+    },
+    ConfirmBatch {
+        batch: Box<BatchPlan>,
         focus: Focus,
     },
     Refuse {
@@ -502,6 +640,98 @@ pub fn modal_view<'a>(modal: &'a Modal, home: Option<&std::path::Path>) -> Eleme
             .spacing(8),
         ]
         .spacing(16),
+        Modal::ConfirmBatch { batch, focus } => {
+            let mut body = column![
+                theme::TITLE.text(batch.title.clone()),
+                theme::SMALL
+                    .text(batch.subtitle.clone())
+                    .style(theme::text_secondary),
+            ]
+            .spacing(16);
+            let mut list = column![].spacing(2);
+            for p in batch.plans.iter().take(BATCH_LISTED) {
+                let shown = super::selection_bar::tilde(std::path::Path::new(&p.path), home);
+                list = list.push(
+                    row![
+                        theme::SMALL
+                            .text(widgets::truncate_middle(&shown, 300.0, theme::SMALL.size))
+                            .wrapping(text::Wrapping::None)
+                            .width(Fill),
+                        theme::SMALL
+                            .text(format::size(p.frees))
+                            .style(theme::text_secondary),
+                    ]
+                    .spacing(8),
+                );
+            }
+            if batch.plans.len() > BATCH_LISTED {
+                list = list.push(
+                    theme::SMALL
+                        .text(format!("and {} more", batch.plans.len() - BATCH_LISTED))
+                        .style(theme::text_secondary),
+                );
+            }
+            body = body.push(list);
+            if let Some((section, reason)) = &batch.reason {
+                let icon = match section {
+                    Some(Section::SafeToDelete) => theme::BODY.text("✓").style(theme::text_good),
+                    Some(Section::ReviewFirst) => theme::BODY.text("!").style(theme::text_warning),
+                    None => theme::BODY.text("·").style(theme::text_muted),
+                };
+                body = body.push(row![icon, theme::BODY.text(reason.clone())].spacing(10));
+            }
+            for warning in &batch.warnings {
+                body = body.push(
+                    row![
+                        container(theme::CAPTION.text("!").style(theme::text_on_warning))
+                            .padding([0, 5])
+                            .style(theme::warning_badge),
+                        theme::SMALL.text(warning.clone()),
+                    ]
+                    .spacing(10),
+                );
+            }
+            if !batch.skipped.is_empty() {
+                let mut text = format!(
+                    "{} stay:",
+                    format::plural(batch.skipped.len() as u64, "item", "items")
+                );
+                for (name, why) in batch.skipped.iter().take(3) {
+                    text += &format!(" “{name}” ({why})");
+                }
+                if batch.skipped.len() > 3 {
+                    text += &format!(" and {} more", batch.skipped.len() - 3);
+                }
+                body = body.push(theme::SMALL.text(text).style(theme::text_secondary));
+            }
+            body = body.push(
+                theme::SMALL
+                    .text("The space is freed when you empty the Trash.")
+                    .style(theme::text_secondary),
+            );
+            body.push(
+                row![
+                    space().width(Fill),
+                    dialog_button(
+                        "Cancel",
+                        *focus == Focus::Cancel,
+                        false,
+                        Message::CancelModal
+                    ),
+                    dialog_button(
+                        if cfg!(windows) {
+                            "Move All to Recycle Bin"
+                        } else {
+                            "Move All to Trash"
+                        },
+                        *focus == Focus::Trash,
+                        true,
+                        Message::ConfirmBatch
+                    ),
+                ]
+                .spacing(8),
+            )
+        }
         Modal::Confirm { plan, focus } => {
             let shown_path = super::selection_bar::tilde(std::path::Path::new(&plan.path), home);
             let mut body = column![

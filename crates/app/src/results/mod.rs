@@ -74,6 +74,7 @@ pub struct Results {
     pub tree_gen: u32,
     pub candidates: candidates::Candidates,
     pub trash_jobs: HashMap<TrashJobId, PendingTrash>,
+    pub trash_batches: HashMap<u32, TrashBatch>,
     /// Set by the app when the scan starts; the cleanup pane and the pills need the catalog.
     pub engine: Option<std::sync::Arc<dirstat_core::catalog::Engine>>,
     pub cleanup: cleanup_pane::CleanupPane,
@@ -119,6 +120,20 @@ pub struct PendingTrash {
     pub name: String,
     pub frees: u64,
     pub shared_space: bool,
+    /// Part of a "Move All to Trash" batch: one toast for all of them.
+    pub batch: Option<u32>,
+}
+
+/// A batch in flight: what the finished jobs did so far.
+#[derive(Clone, Debug, Default)]
+pub struct TrashBatch {
+    pub remaining: usize,
+    pub moved: usize,
+    pub frees: u64,
+    pub shared_space: bool,
+    pub failures: Vec<String>,
+    /// All folders: "folders" in the toast, else "items".
+    pub folders: bool,
 }
 
 /// The toast a finished trash job asks for: text, and whether it stays until closed.
@@ -161,6 +176,7 @@ impl Results {
             tree_gen: active.id.0 as u32,
             candidates: candidates::Candidates::default(),
             trash_jobs: HashMap::new(),
+            trash_batches: HashMap::new(),
             engine: None,
             cleanup: cleanup_pane::CleanupPane::default(),
             focus: Pane::Tree,
@@ -604,6 +620,38 @@ impl Results {
     }
 
     /// Marks the target pending and records the job: only the confirm button gets here.
+    /// Starts every job of a confirmed batch; `batch` ties their results together.
+    pub fn start_batch(
+        &mut self,
+        batch: &trash::BatchPlan,
+        batch_id: u32,
+        mut next_id: impl FnMut() -> TrashJobId,
+    ) -> Vec<TrashJob> {
+        self.trash_batches.insert(
+            batch_id,
+            TrashBatch {
+                remaining: batch.plans.len(),
+                folders: batch
+                    .plans
+                    .iter()
+                    .all(|p| matches!(p.target, trash::TrashTarget::Dir(_))),
+                ..TrashBatch::default()
+            },
+        );
+        batch
+            .plans
+            .iter()
+            .map(|plan| {
+                let id = next_id();
+                let job = self.start_trash(plan, id);
+                if let Some(pending) = self.trash_jobs.get_mut(&id) {
+                    pending.batch = Some(batch_id);
+                }
+                job
+            })
+            .collect()
+    }
+
     pub fn start_trash(&mut self, plan: &trash::TrashPlan, id: TrashJobId) -> TrashJob {
         let target = plan.target;
         match target {
@@ -625,6 +673,7 @@ impl Results {
                 name: plan.name.clone(),
                 frees: plan.frees,
                 shared_space: plan.shared_space,
+                batch: None,
             },
         );
         TrashJob {
@@ -648,7 +697,63 @@ impl Results {
 
     /// Accounts for a finished trash job (design §7.4). Sizes leave the ancestors at once;
     /// the struck-through row stays until the next re-order.
+    /// A trash job finished. A job of a batch reports nothing until the batch's last one,
+    /// which reports for all of them.
     pub fn trash_finished(
+        &mut self,
+        id: TrashJobId,
+        generation: u32,
+        outcomes: Vec<TrashOutcome>,
+        home: Option<&std::path::Path>,
+        now: Instant,
+    ) -> Option<TrashToast> {
+        let pending = self.trash_jobs.get(&id)?;
+        let Some(batch_id) = pending.batch else {
+            return self.trash_finished_one(id, generation, outcomes, home, now);
+        };
+        let (frees, shared) = (pending.frees, pending.shared_space);
+        let failed = outcomes
+            .iter()
+            .any(|o| matches!(o, TrashOutcome::Failed(..)));
+        let toast = self.trash_finished_one(id, generation, outcomes, home, now);
+        let batch = self.trash_batches.get_mut(&batch_id)?;
+        batch.remaining = batch.remaining.saturating_sub(1);
+        if failed || generation != self.tree_gen {
+            batch.failures.extend(toast.map(|(text, _)| text));
+        } else {
+            batch.moved += 1;
+            batch.frees += frees;
+            batch.shared_space |= shared;
+        }
+        if batch.remaining > 0 {
+            return None;
+        }
+        let batch = self.trash_batches.remove(&batch_id)?;
+        let up_to = if batch.shared_space { "up to " } else { "" };
+        let moved = if batch.folders {
+            format::plural(batch.moved as u64, "folder", "folders")
+        } else {
+            format::plural(batch.moved as u64, "item", "items")
+        };
+        Some(match batch.failures.first() {
+            None => (
+                format!(
+                    "Moved {moved} to the Trash. Empty the Trash to free {up_to}{}.",
+                    format::size(batch.frees)
+                ),
+                false,
+            ),
+            Some(first) => (
+                format!(
+                    "Moved {moved} to the Trash; {} didn't move. {first}",
+                    batch.failures.len()
+                ),
+                true,
+            ),
+        })
+    }
+
+    fn trash_finished_one(
         &mut self,
         id: TrashJobId,
         generation: u32,

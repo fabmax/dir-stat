@@ -375,18 +375,38 @@ fn group_view<'a>(pane: &'a CleanupPane, group: &'a Group, focused: bool) -> Ele
         theme::BODY.text(size)
     ]
     .align_y(Center);
-    let mut lines = column![
-        line1,
-        theme::SMALL
-            .text(widgets::truncate_end(
-                group.reason,
-                300.0,
-                theme::SMALL.size
-            ))
-            .style(theme::text_secondary)
-            .wrapping(text::Wrapping::None)
-    ]
-    .spacing(2);
+    // Several folders left to move, and no tool needed: all of them in one dialog.
+    let batch = group.command.is_none() && group.items.iter().filter(|i| !i.trashed).count() > 1;
+    let reason = theme::SMALL
+        .text(widgets::truncate_end(
+            group.reason,
+            if batch { 190.0 } else { 300.0 },
+            theme::SMALL.size,
+        ))
+        .style(theme::text_secondary)
+        .wrapping(text::Wrapping::None);
+    let line2: Element<'a, Message> = if batch {
+        let label = if cfg!(windows) {
+            "Move All to Recycle Bin…"
+        } else {
+            "Move All to Trash…"
+        };
+        row![
+            container(reason).width(Fill).clip(true),
+            button(theme::CAPTION.with_font(fonts::MEDIUM).text(label))
+                .padding([0, 8])
+                .height(18)
+                .style(theme::secondary_button)
+                .on_press(Message::TrashGroup(key)),
+        ]
+        .spacing(8)
+        .align_y(Center)
+        .height(18)
+        .into()
+    } else {
+        reason.into()
+    };
+    let mut lines = column![line1, line2].spacing(2);
     if let Some(command) = &group.command {
         lines = lines.push(
             row![

@@ -131,6 +131,9 @@ pub enum Message {
     CleanupSmaller(Section),
     CleanupScrolled(scrollable::Viewport),
     CopyCommand(String),
+    /// "Move All to Trash…" on a cleanup group.
+    TrashGroup(GroupKey),
+    ConfirmBatch,
     // map tab
     ShowMapTab(bool),
     MapHover(Option<RowKey>),
@@ -456,6 +459,8 @@ impl App {
                 return iced::clipboard::write(command);
             }
             Message::ConfirmTrash => return self.confirm_trash(),
+            Message::TrashGroup(key) => self.request_batch(key),
+            Message::ConfirmBatch => return self.confirm_batch(),
             Message::CancelModal => self.modal = None,
             Message::TrashFinished(id, generation, outcomes) => {
                 if let Screen::Results(r) = &mut self.screen
@@ -670,6 +675,24 @@ impl App {
                     Task::none()
                 }
                 KeyAction::Space if *focus == Focus::Trash => self.update(Message::ConfirmTrash),
+                KeyAction::Space => self.update(Message::CancelModal),
+                _ => Task::none(),
+            };
+        }
+        if let Some(Modal::ConfirmBatch { batch, focus }) = &mut self.modal {
+            return match action {
+                KeyAction::Escape => self.update(Message::CancelModal),
+                KeyAction::Enter if batch.default_is_trash => self.update(Message::ConfirmBatch),
+                KeyAction::Enter => self.update(Message::CancelModal),
+                KeyAction::Tab | KeyAction::ShiftTab => {
+                    *focus = if *focus == Focus::Cancel {
+                        Focus::Trash
+                    } else {
+                        Focus::Cancel
+                    };
+                    Task::none()
+                }
+                KeyAction::Space if *focus == Focus::Trash => self.update(Message::ConfirmBatch),
                 KeyAction::Space => self.update(Message::CancelModal),
                 _ => Task::none(),
             };
@@ -1005,9 +1028,8 @@ impl App {
             return;
         }
         let Some(candidate) = r.cleanup.candidate_of(line) else {
-            self.toast = Some(Toast::info(
-                "Select one folder in the group to move it to the Trash.",
-            ));
+            // A group with several folders: all of them, in one dialog.
+            self.request_batch(key);
             return;
         };
         let target = match candidate {
@@ -1034,6 +1056,83 @@ impl App {
             None => return,
         };
         self.request_trash_target(target);
+    }
+
+    /// Plans every folder of a cleanup group and opens one dialog for all of them.
+    fn request_batch(&mut self, key: GroupKey) {
+        let Screen::Results(r) = &self.screen else {
+            return;
+        };
+        let Some(group) = r.cleanup.group(key) else {
+            return;
+        };
+        if let Some(command) = &group.command {
+            self.toast = Some(Toast::info(format!("Use the command instead: {command}")));
+            return;
+        }
+        let targets: Vec<TrashTarget> = group
+            .items
+            .iter()
+            .filter(|i| !i.trashed)
+            .map(|i| match i.candidate {
+                CandidateRef::Dir(id) => TrashTarget::Dir(id),
+                CandidateRef::File(dir, index) => TrashTarget::File(dir, index),
+            })
+            .collect();
+        let planned = trash::plan_batch(
+            r,
+            &self.env.engine,
+            &self.env.guards,
+            &group.title,
+            &targets,
+            |c| r.candidates.state(c),
+            std::time::SystemTime::now(),
+        );
+        self.modal = Some(match planned {
+            Ok(batch) => Modal::ConfirmBatch {
+                focus: if batch.default_is_trash {
+                    Focus::Trash
+                } else {
+                    Focus::Cancel
+                },
+                batch: Box::new(batch),
+            },
+            Err(refused) => Modal::Refuse {
+                title: refused.title,
+                message: refused.message,
+            },
+        });
+    }
+
+    /// The confirmed batch: one ordinary job per item, all reported in one toast.
+    fn confirm_batch(&mut self) -> Task<Message> {
+        let Some(Modal::ConfirmBatch { batch, .. }) = self.modal.take() else {
+            return Task::none();
+        };
+        let Screen::Results(r) = &mut self.screen else {
+            return Task::none();
+        };
+        self.next_trash_job += 1;
+        let batch_id = self.next_trash_job as u32;
+        let next = &mut self.next_trash_job;
+        let jobs = r.start_batch(&batch, batch_id, || {
+            *next += 1;
+            TrashJobId(*next)
+        });
+        let tasks = jobs.into_iter().map(|job| {
+            let (guards, trasher) = (Arc::clone(&self.env.guards), Arc::clone(&self.env.trasher));
+            let (id, generation) = (job.id, job.tree_gen);
+            blocking(
+                move || Ok(dirstat_core::trash::execute(&job, &guards, &*trasher)),
+                move |result: Result<Vec<TrashOutcome>, String>| {
+                    let outcomes = result.unwrap_or_else(|e| {
+                        vec![TrashOutcome::Failed(Default::default(), TrashError::Os(e))]
+                    });
+                    Message::TrashFinished(id, generation, outcomes)
+                },
+            )
+        });
+        Task::batch(tasks.collect::<Vec<_>>())
     }
 
     fn request_trash_target(&mut self, target: TrashTarget) {
