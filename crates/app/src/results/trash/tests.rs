@@ -237,3 +237,27 @@ fn contents_mode_lists_the_scanned_entries() {
     assert_eq!(names, ["_cacache", "big.tgz"]);
     assert!(p.title.starts_with("Move the contents of"));
 }
+
+#[test]
+fn self_only_zones_warn_for_the_folder_itself_not_what_is_inside() {
+    let top = Verdict::Protected(engine().rule_by_id("top-level").unwrap());
+    let results = results_with(
+        dir("vol")
+            .verdict(top)
+            .child(dir("docs").small_files(1, 1000)),
+    );
+    let inside = plan_for(&results, "proj/vol/docs", GitState::NotInRepo).unwrap();
+    assert!(
+        !inside.warnings.iter().any(|w| w.contains("Top-level")),
+        "{:?}",
+        inside.warnings
+    );
+    let itself = plan_for(&results, "proj/vol", GitState::NotInRepo).unwrap();
+    assert!(
+        itself
+            .warnings
+            .contains(&"Top-level folder; never suggested as a whole.".to_string()),
+        "{:?}",
+        itself.warnings
+    );
+}

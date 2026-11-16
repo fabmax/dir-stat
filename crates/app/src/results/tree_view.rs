@@ -68,6 +68,8 @@ pub struct TreeView {
     pub reorders: u64,
     /// A row revealed from the cleanup pane flashes twice.
     pub flash: Option<(RowKey, Instant)>,
+    /// Bytes the Unaccounted row shows at the root, if any (UX §5.6).
+    pub unaccounted: Option<u64>,
 }
 
 impl Default for TreeView {
@@ -86,15 +88,27 @@ impl Default for TreeView {
             history: History::default(),
             reorders: 0,
             flash: None,
+            unaccounted: None,
         }
     }
 }
 
 impl TreeView {
+    fn build_rows(&self, tree: &Tree) -> Vec<Row> {
+        let mut rows = rows::build(tree, self.zoom, &self.orders, &self.open_aggregates);
+        if self.zoom == NodeId::ROOT && self.unaccounted.is_some() {
+            rows.push(Row {
+                key: RowKey::Unaccounted,
+                depth: 0,
+            });
+        }
+        rows
+    }
+
     /// Rebuilds the rows with the anchor kept still. `Some(offset)` when the view must scroll.
     pub fn rebuild(&mut self, tree: &Tree, now: Instant) -> Option<f32> {
         let anchor = rows::anchor(&self.rows, self.viewport, self.selection);
-        self.rows = rows::build(tree, self.zoom, &self.orders, &self.open_aggregates);
+        self.rows = self.build_rows(tree);
         self.scan_rows_dirty = false;
         self.last_rows_build = Some(now);
         let offset = match anchor {
@@ -140,7 +154,7 @@ impl TreeView {
     ) -> f32 {
         self.orders.clear();
         self.sync_orders(tree);
-        self.rows = rows::build(tree, self.zoom, &self.orders, &self.open_aggregates);
+        self.rows = self.build_rows(tree);
         self.scan_rows_dirty = false;
         self.last_rows_build = Some(now);
         let index = self
@@ -314,7 +328,7 @@ impl TreeView {
         self.zoom = place.zoom;
         self.selection = place.selection;
         self.sync_orders(tree);
-        self.rows = rows::build(tree, self.zoom, &self.orders, &self.open_aggregates);
+        self.rows = self.build_rows(tree);
         self.last_rows_build = Some(now);
         let offset = place
             .offset_y
@@ -339,7 +353,7 @@ impl TreeView {
         }
         self.sync_orders(tree);
         self.select(RowKey::Dir(id), now);
-        self.rows = rows::build(tree, self.zoom, &self.orders, &self.open_aggregates);
+        self.rows = self.build_rows(tree);
         self.last_rows_build = Some(now);
         let index = self.rows.iter().position(|r| r.key == RowKey::Dir(id))?;
         let offset = (index as f32 * ROW_H - self.viewport.height / 2.0)

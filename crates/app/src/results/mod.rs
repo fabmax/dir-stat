@@ -9,6 +9,7 @@ pub mod errors;
 pub mod migrate;
 pub mod nav;
 pub mod order;
+pub mod package;
 pub mod rows;
 pub mod scan_task;
 pub mod selection_bar;
@@ -207,6 +208,11 @@ impl Results {
                 }
                 if from_active {
                     self.activity.on_progress(batch.progress, now);
+                    let p = &self.activity.progress;
+                    if let Some(f) = activity::progress_fraction(self.estimate.as_ref(), p) {
+                        let elapsed = p.elapsed;
+                        self.activity.on_fraction(f, elapsed, now);
+                    }
                 }
                 ScanOutcome::Applied
             }
@@ -222,6 +228,9 @@ impl Results {
                     self.active = None;
                     // Completion: one exact re-sort, anchored to the selection.
                     if self.tree.is_started() {
+                        if !summary.cancelled {
+                            self.view.unaccounted = self.unaccounted();
+                        }
                         self.scroll_to = self.view.settle(&self.tree, now);
                         self.candidates.collect(&self.tree);
                         self.cleanup_dirty = true;
@@ -266,6 +275,15 @@ impl Results {
         self.active.is_none()
             && self.rescan.is_none()
             && matches!(self.phase, Phase::Complete | Phase::Stopped)
+    }
+
+    /// Volume used minus what the scan counted, for complete volume-root scans when the gap
+    /// is at least 1 GB and 1% of used space (UX §5.6). Negative gaps (clones) hide it.
+    pub fn unaccounted(&self) -> Option<u64> {
+        let used = self.estimate.as_ref()?.container_used?;
+        let scanned = self.tree.node(NodeId::ROOT).total().alloc;
+        let gap = used.checked_sub(scanned)?;
+        (gap >= 1_000_000_000 && gap.saturating_mul(100) >= used).then_some(gap)
     }
 
     pub fn is_rescanning(&self) -> bool {
@@ -409,6 +427,7 @@ impl Results {
             replaced = true;
             self.phase = Phase::Complete;
             self.summary = Some(summary);
+            self.view.unaccounted = self.unaccounted();
         } else {
             self.tree.splice(target, sub);
             self.tree.set_flag(target, NodeFlags::RESCANNING, false);

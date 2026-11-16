@@ -68,6 +68,8 @@ pub enum RowKey {
     MoreFiles(NodeId),
     /// "Waiting to be scanned…" / "This folder is empty."
     Placeholder(NodeId),
+    /// Used space the scan couldn't see, last among the root's children (UX §5.6).
+    Unaccounted,
 }
 
 impl RowKey {
@@ -80,6 +82,7 @@ impl RowKey {
             | RowKey::SmallFile(id, _)
             | RowKey::MoreFiles(id)
             | RowKey::Placeholder(id) => id,
+            RowKey::Unaccounted => NodeId::ROOT,
         }
     }
 }

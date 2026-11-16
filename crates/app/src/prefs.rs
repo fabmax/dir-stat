@@ -12,9 +12,16 @@ const MAX_RECENTS: usize = 5;
 pub struct Prefs {
     /// Most recent first, as (path, unix seconds).
     pub recents: Vec<(PathBuf, i64)>,
+    /// ⌘0 hid the cleanup pane.
+    pub hide_side_pane: bool,
+    pub sort: crate::results::order::Sort,
 }
 
 impl Prefs {
+    pub fn remove_recent(&mut self, path: &std::path::Path) {
+        self.recents.retain(|(p, _)| p != path);
+    }
+
     pub fn add_recent(&mut self, path: PathBuf, now: i64) {
         self.recents.retain(|(p, _)| *p != path);
         self.recents.insert(0, (path, now));

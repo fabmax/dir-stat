@@ -6,14 +6,14 @@ use std::time::{Duration, Instant};
 
 use dirstat_core::tree::{FileFlags, Node, NodeFlags, NodeId, Tree};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Column {
     Name,
     Size,
     Items,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Sort {
     pub column: Column,
     pub descending: bool,

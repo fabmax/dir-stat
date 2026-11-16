@@ -536,6 +536,21 @@ pub fn icon_button(theme: &Theme, status: button::Status) -> button::Style {
     }
 }
 
+/// A list row that is a button (recent locations): hover background only.
+pub fn row_button(theme: &Theme, status: button::Status) -> button::Style {
+    let tokens = tokens(theme);
+    button::Style {
+        background: matches!(status, button::Status::Hovered | button::Status::Pressed)
+            .then(|| tokens.bg_hover.into()),
+        text_color: tokens.text_primary,
+        border: Border {
+            radius: 6.0.into(),
+            ..Border::default()
+        },
+        ..button::Style::default()
+    }
+}
+
 /// Popovers: raised, radius 8, with shadow (UX §11.2).
 pub fn popover(theme: &Theme) -> container::Style {
     toast(theme)

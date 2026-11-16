@@ -21,6 +21,17 @@ pub struct StartState {
     pub focused: Option<usize>,
     pub fda: Option<bool>,
     pub system_name: String,
+    pub recents: Vec<Recent>,
+}
+
+/// A recent scan root (UX §4): clicking it scans again; results aren't cached.
+#[derive(Clone, Debug)]
+pub struct Recent {
+    pub path: std::path::PathBuf,
+    /// `~/dev`
+    pub shown: String,
+    /// "yesterday"
+    pub when: String,
 }
 
 impl StartState {
@@ -82,6 +93,9 @@ pub fn view(state: &StartState) -> Element<'_, Message> {
         content = content.push(banner(message));
     }
     content = content.push(header).push(cards).push(choose);
+    if !state.recents.is_empty() {
+        content = content.push(recents(&state.recents));
+    }
     if cfg!(target_os = "macos") && state.fda != Some(true) {
         content = content.push(footnote());
     }
@@ -208,6 +222,51 @@ fn meter<'a>(space: Space) -> Element<'a, Message> {
     .into()
 }
 
+fn recents(recents: &[Recent]) -> Element<'_, Message> {
+    let mut list = Column::new().spacing(0).width(CARD_WIDTH);
+    list = list.push(
+        container(theme::BODY_STRONG.text("Recent"))
+            .padding([0, 12])
+            .height(28)
+            .center_y(28),
+    );
+    for recent in recents {
+        let line = row![
+            theme::BODY
+                .text(crate::widgets::truncate_middle(
+                    &recent.shown,
+                    340.0,
+                    theme::BODY.size
+                ))
+                .wrapping(text::Wrapping::None)
+                .width(Fill),
+            theme::SMALL
+                .text(recent.when.clone())
+                .style(theme::text_secondary),
+            theme::BODY.text("›").style(theme::text_muted),
+        ]
+        .spacing(12)
+        .align_y(Center);
+        let scan = button(line)
+            .padding([5, 12])
+            .width(Fill)
+            .style(theme::row_button)
+            .on_press(Message::ScanPath(recent.path.clone()));
+        let remove = tooltip(
+            button(theme::BODY.text("×").style(theme::text_muted))
+                .padding([4, 8])
+                .style(theme::row_button)
+                .on_press(Message::RemoveRecent(recent.path.clone())),
+            container(theme::SMALL.text("Remove from Recent"))
+                .padding([4, 8])
+                .style(theme::raised),
+            tooltip::Position::Top,
+        );
+        list = list.push(row![scan, remove].align_y(Center));
+    }
+    list.into()
+}
+
 fn banner(message: &str) -> Element<'_, Message> {
     container(
         row![
@@ -262,6 +321,7 @@ mod tests {
             focused: None,
             fda: None,
             system_name: "Disk".into(),
+            recents: Vec::new(),
         }
     }
 

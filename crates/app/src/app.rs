@@ -97,6 +97,7 @@ pub enum Message {
     Scan(scan_task::ScanId, Update),
     Stop,
     NewScan,
+    RemoveRecent(PathBuf),
     /// "Stop and Start Over" in the New Scan confirmation.
     StopAndStartOver,
     /// The selected folder, or the zoom root (⌘R).
@@ -168,7 +169,7 @@ impl App {
             system_name,
             home: platform::home_dir(),
             // The bundle id is set once dir-stat ships as an app bundle (M11).
-            terminal: platform::launched_from_terminal(None),
+            terminal: platform::launched_from_terminal(Some(BUNDLE_ID)),
             guards: Arc::new(Guards::new()),
             trasher: Arc::new(SystemTrasher),
             git: git::find_git(),
@@ -182,13 +183,8 @@ impl App {
     /// No I/O: tests construct the app with a fake `Env`.
     pub fn new(env: Env, cli: Cli) -> (App, Task<Message>) {
         let prefs = env.prefs_store.load();
-        let start = StartState {
-            cards: env.cards.clone(),
-            banner: None,
-            focused: None,
-            fda: env.fda,
-            system_name: env.system_name.clone(),
-        };
+        let start = start_state(&env, &prefs, None);
+        let side_pane = !prefs.hide_side_pane;
         let app = App {
             env,
             prefs,
@@ -197,7 +193,7 @@ impl App {
             drag_hover: false,
             left_button_held: false,
             pointer_in_tree: false,
-            side_pane: true,
+            side_pane,
             toast: None,
             fda_dismissed: false,
             modal: None,
@@ -278,6 +274,13 @@ impl App {
             Message::Scan(id, update) => self.on_scan(id, update),
             Message::Stop => self.stop(),
             Message::NewScan => self.new_scan(),
+            Message::RemoveRecent(path) => {
+                self.prefs.remove_recent(&path);
+                self.env.prefs_store.save(&self.prefs);
+                if let Screen::Start(start) = &mut self.screen {
+                    start.recents.retain(|r| r.path != path);
+                }
+            }
             Message::StopAndStartOver => {
                 self.modal = None;
                 self.show_start(None);
@@ -448,6 +451,8 @@ impl App {
             Message::SortBy(column) => {
                 if let Screen::Results(r) = &mut self.screen {
                     r.sort_by(column, Instant::now());
+                    self.prefs.sort = r.view.sort;
+                    self.env.prefs_store.save(&self.prefs);
                 }
             }
             Message::PointerIn(inside) => self.pointer_in_tree = inside,
@@ -510,6 +515,7 @@ impl App {
         let mut results = Results::new(path, title, estimate, active);
         results.engine = Some(Arc::clone(&self.env.engine));
         results.view.set_height(tree_height(self.window_size));
+        results.view.sort = self.prefs.sort;
         self.screen = Screen::Results(Box::new(results));
         Task::batch([
             task,
@@ -588,13 +594,7 @@ impl App {
     }
 
     fn show_start(&mut self, banner: Option<String>) {
-        self.screen = Screen::Start(StartState {
-            cards: self.env.cards.clone(),
-            banner,
-            focused: None,
-            fda: self.env.fda,
-            system_name: self.env.system_name.clone(),
-        });
+        self.screen = Screen::Start(start_state(&self.env, &self.prefs, banner));
     }
 
     fn key(&mut self, action: KeyAction) -> Task<Message> {
@@ -671,12 +671,18 @@ impl App {
             (Screen::Results(_), KeyAction::RescanAll) => return self.update(Message::RescanAll),
             (Screen::Results(r), KeyAction::TogglePane) => {
                 self.side_pane = !self.side_pane;
+                self.prefs.hide_side_pane = !self.side_pane;
+                self.env.prefs_store.save(&self.prefs);
                 if !self.side_pane {
                     r.focus = Pane::Tree;
                 }
             }
             (Screen::Results(r), KeyAction::PaneCleanup) => {
                 self.side_pane = true;
+                if self.prefs.hide_side_pane {
+                    self.prefs.hide_side_pane = false;
+                    self.env.prefs_store.save(&self.prefs);
+                }
                 r.focus = Pane::Cleanup;
             }
             (Screen::Results(r), KeyAction::Tab | KeyAction::ShiftTab) => {
@@ -1127,6 +1133,10 @@ fn side_pane_fits(window: f32) -> bool {
     window >= 1000.0 && window - side_pane_width(window) >= 440.0
 }
 
+/// The bundle identifier `scripts/bundle-macos.sh` gives the app (design §12, question 6).
+/// Launched from Finder, `__CFBundleIdentifier` is this, which is not a terminal.
+pub const BUNDLE_ID: &str = "com.example.dir-stat";
+
 /// Drop and resize events, regardless of which widget captured them.
 fn window_event(
     event: iced::Event,
@@ -1213,6 +1223,30 @@ fn title_for(path: &Path, cards: &[VolumeCard]) -> String {
 }
 
 /// "Can't scan “/foo”: No such folder."
+/// The start screen, with the recent scan roots from the prefs.
+fn start_state(env: &Env, prefs: &Prefs, banner: Option<String>) -> StartState {
+    let now = unix_now();
+    let recents = prefs
+        .recents
+        .iter()
+        .map(|(path, at)| crate::start::Recent {
+            path: path.clone(),
+            shown: crate::results::selection_bar::tilde(path, env.home.as_deref()),
+            when: crate::format::relative(std::time::Duration::from_secs(
+                now.saturating_sub(*at).max(0) as u64,
+            )),
+        })
+        .collect();
+    StartState {
+        cards: env.cards.clone(),
+        banner,
+        focused: None,
+        fda: env.fda,
+        system_name: env.system_name.clone(),
+        recents,
+    }
+}
+
 pub fn failure_banner(path: &Path, error: &StartError) -> String {
     use std::io::ErrorKind;
     let reason = match error.kind {

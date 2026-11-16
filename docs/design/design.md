@@ -1646,6 +1646,15 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
 - `scripts/bundle-macos.sh` (Info.plist with purpose strings, icon placeholder, codesign).
 - A README section on running and bundling.
 - *Accept:* the manual checklist §10.4 items 1–5, 7, 10 pass with the bundled app; recents survive a restart.
+- *Implemented 2026-11-16; manual checklist partly open.* App-level tests: Unaccounted shows last at the root after completion only (not zoomed in, not under 1 GB, not for a negative gap); recents, the hidden side pane and the sort survive a restart and a removed recent is saved at once; "1 of 2 folders done". Unit tests: ETA (waits for 5 s and 5%, grows ≤ 30% per update, rounding), packages, self-only zone warnings. `scripts/bundle-macos.sh` builds and ad-hoc-signs `dir-stat.app` (`com.example.dir-stat`), which launches. Checked without touching `~`: item 4 (a read-only DMG shows as an External card; a folder on it is refused "is on a read-only volume"); the package tag on `/Applications`. Items 1–3, 5 and 7 scan `/` or `~`, or need Full Disk Access granted, so they wait for the user; item 10's RSS part was measured in M10. Notes:
+  - **Fix found by item 4:** G5 read-only was only checked live in `execute`, after confirming. `plan` now checks it too (one `statfs`), which also covers volumes mounted after startup.
+  - **Fix found by item 4:** the warning of a self-only protect zone (`top-level`: `~`, `/Volumes/*`, `/Applications`, …) appeared for everything inside it, reading "Top-level folder: Top-level folder; never suggested as a whole." It now applies to the folder itself only, and a reason that starts with the rule name is shown alone.
+  - ETA uses the progress fraction (items / inodes in use, D3), not bytes/s; "N of M folders done" counts the scan root's (or the rescanned folder's) subfolders, skipped ones excluded.
+  - Packages: code bundles need the bundle layout markers; document packages (`.photoslibrary`, `.xcarchive`, `.musiclibrary`, …) match by extension. The tag is macOS-only. There is no separate package icon (the fallback glyph set has none).
+  - Prefs: recents, `hide_side_pane` and the sort, in `<config dir>/dir-stat/prefs.json`. Window size isn't persisted (the window is created before the prefs are read).
+  - Recent rows show the × all the time, muted, instead of on hover.
+  - The app passes its own bundle id to `launched_from_terminal`, so a Finder launch doesn't name dir-stat as the terminal in the FDA bar.
+  - Icon: a placeholder drawn by `scripts/make-icon.py` (no image library), turned into `AppIcon.icns` with `sips`/`iconutil`.
 
 **M12 — Treemap (optional, SHOULD)**
 - UX §8 as summarized in §6.10, plus the tab bar with the "Cleanup 38 GB" label and ⌘2.

@@ -22,9 +22,13 @@ fn engine() -> Arc<Engine> {
 }
 
 fn app() -> App {
+    app_with(Box::new(MemoryPrefs(Mutex::new(Prefs::default()))))
+}
+
+fn app_with(prefs_store: Box<dyn crate::prefs::PrefsStore>) -> App {
     let env = Env {
         engine: engine(),
-        prefs_store: Box::new(MemoryPrefs(Mutex::new(Prefs::default()))),
+        prefs_store,
         cards: Vec::new(),
         mounts: Vec::new(),
         fda: None,
@@ -929,5 +933,131 @@ mod rescan_flow {
             matches!(app.screen, Screen::Start(_)),
             "stopped and started over"
         );
+    }
+}
+
+mod polish {
+    use super::*;
+    use crate::keys::KeyAction;
+    use crate::prefs::PrefsStore;
+    use crate::results::order::Column;
+    use crate::results::rows::RowKey;
+    use crate::results::selection_bar::contents;
+    use dirstat_core::volumes::ScanEstimate;
+
+    /// A prefs file that outlives the app, like the JSON file on disk.
+    #[derive(Clone, Default)]
+    struct Shared(Arc<Mutex<Prefs>>);
+
+    impl PrefsStore for Shared {
+        fn load(&self) -> Prefs {
+            self.0.lock().unwrap().clone()
+        }
+        fn save(&self, prefs: &Prefs) {
+            *self.0.lock().unwrap() = prefs.clone();
+        }
+    }
+
+    fn with_estimate(app: &mut App, used: u64) {
+        if let Screen::Results(r) = &mut app.screen {
+            r.estimate = Some(ScanEstimate {
+                container_used: Some(used),
+                ..ScanEstimate::default()
+            });
+        }
+    }
+
+    #[test]
+    fn unaccounted_space_shows_last_at_the_root_only_when_big_enough() {
+        let builder = sample();
+        // The gap is 5 GB of 6 GB used.
+        let mut app = app();
+        let id = app.start_simulated("/r");
+        with_estimate(&mut app, 6_000_000_000);
+        let _ = app.update(Message::Scan(id, Update::Started(builder.root_info())));
+        let _ = app.update(Message::Scan(id, batch(builder.listings())));
+        assert!(
+            results(&app).view.unaccounted.is_none(),
+            "only after completion"
+        );
+        let _ = app.update(Message::Scan(id, Update::Finished(Summary::default())));
+        let r = results(&app);
+        assert_eq!(
+            r.view.rows.last().map(|row| row.key),
+            Some(RowKey::Unaccounted)
+        );
+        let gap = r.view.unaccounted.unwrap();
+        assert!(gap > 5_900_000_000, "{gap}");
+        let bar = contents(r, RowKey::Unaccounted, None, 0).unwrap();
+        assert_eq!(bar.path, "Unaccounted space");
+        assert!(bar.actions.is_empty());
+
+        // Zoomed in, the row is gone.
+        let a = r.tree.find_path(std::path::Path::new("/r/a")).unwrap();
+        let _ = app.update(Message::ZoomTo(a));
+        assert!(
+            !results(&app)
+                .view
+                .rows
+                .iter()
+                .any(|row| row.key == RowKey::Unaccounted)
+        );
+
+        // A small gap (under 1 GB) shows nothing; neither does a negative one.
+        for used in [500_000_000, 1] {
+            let mut app = super::app();
+            let id = app.start_simulated("/r");
+            with_estimate(&mut app, used);
+            let _ = app.update(Message::Scan(id, Update::Started(builder.root_info())));
+            let _ = app.update(Message::Scan(id, batch(builder.listings())));
+            let _ = app.update(Message::Scan(id, Update::Finished(Summary::default())));
+            assert!(results(&app).view.unaccounted.is_none());
+        }
+    }
+
+    #[test]
+    fn recents_side_pane_and_sort_survive_a_restart() {
+        let store = Shared::default();
+        let mut first = app_with(Box::new(store.clone()));
+        let builder = sample();
+        let id = first.start_simulated("/r");
+        let _ = first.update(Message::Scan(id, Update::Started(builder.root_info())));
+        let _ = first.update(Message::Scan(id, batch(builder.listings())));
+        let _ = first.update(Message::Scan(id, Update::Finished(Summary::default())));
+        let _ = first.update(Message::Key(KeyAction::TogglePane));
+        let _ = first.update(Message::SortBy(Column::Name));
+        drop(first);
+
+        let second = app_with(Box::new(store.clone()));
+        let Screen::Start(start) = &second.screen else {
+            panic!()
+        };
+        assert_eq!(start.recents.len(), 1);
+        assert_eq!(start.recents[0].path, std::path::Path::new("/r"));
+        assert_eq!(start.recents[0].when, "just now");
+        assert!(second.prefs().hide_side_pane);
+        assert_eq!(second.prefs().sort.column, Column::Name);
+
+        let mut second = second;
+        let _ = second.update(Message::RemoveRecent("/r".into()));
+        let Screen::Start(start) = &second.screen else {
+            panic!()
+        };
+        assert!(start.recents.is_empty());
+        assert!(store.load().recents.is_empty(), "saved at once");
+    }
+
+    #[test]
+    fn folder_scans_count_finished_subfolders() {
+        let mut app = app();
+        let builder = sample();
+        let id = app.start_simulated("/r");
+        let _ = app.update(Message::Scan(id, Update::Started(builder.root_info())));
+        let mut listings = builder.listings();
+        // Root and `b` only: `a` (with `deep`) is still open.
+        listings.retain(|l| l.id == NodeId::ROOT || l.id == NodeId(2));
+        let _ = app.update(Message::Scan(id, batch(listings)));
+        let lines = crate::results::activity::lines(results(&app), "r");
+        assert_eq!(lines.line1, "Scanning r · 1 of 2 folders done");
     }
 }

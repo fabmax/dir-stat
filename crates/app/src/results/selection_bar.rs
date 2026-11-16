@@ -98,6 +98,22 @@ fn modified(mtime: i64, now: i64) -> Option<String> {
 
 pub fn contents(results: &Results, key: RowKey, home: Option<&Path>, now: i64) -> Option<Contents> {
     let tree: &Tree = &results.tree;
+    if key == RowKey::Unaccounted {
+        let privacy = tree
+            .errors()
+            .iter()
+            .any(|e| e.error.class == ErrorClass::PrivacyBlocked);
+        return Some(Contents {
+            warning: false,
+            path: "Unaccounted space".into(),
+            details: super::columns::UNACCOUNTED_TIP.into(),
+            actions: if privacy && platform::PRIVACY_SETTINGS_URL.is_some() {
+                vec![Action::PrivacySettings]
+            } else {
+                Vec::new()
+            },
+        });
+    }
     let node = tree.get(key.dir())?;
     let path = tilde(&results.path_for(key)?, home);
     let mut details = Vec::new();
@@ -180,6 +196,7 @@ pub fn contents(results: &Results, key: RowKey, home: Option<&Path>, now: i64) -
                 Ok(())
             }));
         }
+        RowKey::Unaccounted => return None,
         RowKey::Aggregate(dir) | RowKey::MoreFiles(dir) | RowKey::Placeholder(dir) => {
             let split = split_files(tree.node(dir));
             return Some(Contents {

@@ -3,9 +3,9 @@
 
 use std::time::{Duration, SystemTime};
 
-use dirstat_core::catalog::model::Removal;
+use dirstat_core::catalog::model::{Kind, Removal, Scope};
 use dirstat_core::catalog::{
-    self, Display, Engine, GitState, Risk, Section, Verdict, Why, display_section, m,
+    self, Display, Engine, GitState, Risk, Section, Verdict, Why, display_section,
 };
 use dirstat_core::platform::EntryKind;
 use dirstat_core::safety::{self, Guards, Refusal};
@@ -227,8 +227,13 @@ pub fn plan(
         }
     };
 
-    // G2–G5 path rules.
-    if let Err(refusal) = safety::check(guards, tree.root_path(), &path) {
+    // G2–G5 path rules. Read-only is a live check too, so a volume mounted after startup
+    // is refused before the dialog rather than after confirming (one `statfs`).
+    let read_only = dirstat_core::platform::is_read_only(std::path::Path::new(&path))
+        .then_some(Refusal::ReadOnlyVolume);
+    if let Err(refusal) =
+        safety::check(guards, tree.root_path(), &path).and(read_only.map_or(Ok(()), Err))
+    {
         return Err(Refused {
             title: format!("Can't move “{name}”"),
             message: refusal.message(&name),
@@ -262,21 +267,33 @@ pub fn plan(
         TrashTarget::Dir(_) => tree.ancestors(dir).collect(),
         _ => std::iter::once(dir).chain(tree.ancestors(dir)).collect(),
     };
-    if let Some(package) = around.into_iter().find(|&a| is_package(tree, a)) {
+    if let Some(package) = around
+        .into_iter()
+        .find(|&a| super::package::is_package(tree, a))
+    {
         let package_name = tree.node(package).name().to_string_lossy().into_owned();
         warnings.push(format!(
             "Inside the package “{package_name}”: removing parts of it can break it."
         ));
     }
-    // A protected zone around it.
+    // A protected zone around it. Self-only zones (`~`, `/Volumes/X`) cover only the folder
+    // itself, not what is inside.
     let zone = std::iter::once(dir)
         .chain(tree.ancestors(dir))
         .find_map(|a| match tree.node(a).verdict() {
-            Verdict::Protected(r) => Some(engine.rule(r)),
+            Verdict::Protected(r) => {
+                let rule = engine.rule(r);
+                let self_only = matches!(rule.kind, Kind::Protect(Scope::SelfOnly));
+                (a == dir || !self_only).then_some(rule)
+            }
             _ => None,
         });
     if let Some(zone) = zone {
-        warnings.push(format!("{}: {}", zone.name, zone.reason));
+        warnings.push(if zone.reason.starts_with(zone.name) {
+            zone.reason.to_string()
+        } else {
+            format!("{}: {}", zone.name, zone.reason)
+        });
     }
     let repo = candidate
         .and_then(|c| dirstat_core::git::worktree_of(tree, c))
@@ -439,18 +456,6 @@ fn contents_entries(tree: &Tree, id: NodeId) -> Vec<ContentsEntry> {
         },
     }));
     entries
-}
-
-/// A macOS bundle: a package extension and the bundle layout inside (FS §6.6).
-fn is_package(tree: &Tree, id: NodeId) -> bool {
-    let node = tree.node(id);
-    let name = node.name().to_string_lossy();
-    let extension = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
-    let bundle_ext = matches!(
-        extension.as_deref(),
-        Some("app" | "bundle" | "framework" | "plugin" | "kext" | "appex" | "xpc")
-    );
-    bundle_ext && node.markers() & (m::BUNDLE_CONTENTS | m::INFO_PLIST | m::BUNDLE_VERSIONS) != 0
 }
 
 fn refused(name: &str, message: &str) -> Refused {

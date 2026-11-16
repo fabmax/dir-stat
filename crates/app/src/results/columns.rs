@@ -202,14 +202,17 @@ fn row_view<'a>(
     now: Instant,
 ) -> Element<'a, Message> {
     let tree = &results.tree;
-    let cells = cells_for(
-        tree,
-        r.key,
-        results.view.zoom,
-        &results.view.open_aggregates,
-        now,
-        results.started_at,
-    );
+    let cells = match (r.key, results.view.unaccounted) {
+        (RowKey::Unaccounted, Some(bytes)) => unaccounted_cells(bytes),
+        _ => cells_for(
+            tree,
+            r.key,
+            results.view.zoom,
+            &results.view.open_aggregates,
+            now,
+            results.started_at,
+        ),
+    };
     let indent = 12.0 + f32::from(r.depth) * INDENT;
 
     let disclosure: Element<'a, Message> = match cells.disclosure {
@@ -629,6 +632,8 @@ fn base_cells(
                         cells.name_tone = Tone::Secondary;
                     } else if total.error_dirs > 0 {
                         cells.badge = Some(Badge::UnreadableInside(total.error_dirs));
+                    } else if cfg!(target_os = "macos") && super::package::is_package(tree, id) {
+                        cells.badge = Some(Badge::Tag("package"));
                     }
                     if node.has_flag(NodeFlags::VANISHED) {
                         cells.name_tone = Tone::Muted;
@@ -741,8 +746,33 @@ fn base_cells(
             };
             cells.name_tone = Tone::Muted;
         }
+        // Filled in by `unaccounted_cells`; the tree knows nothing about it.
+        RowKey::Unaccounted => {}
     }
     cells
+}
+
+/// Tooltip and selection-bar text of the Unaccounted row (UX §5.6).
+pub const UNACCOUNTED_TIP: &str = "Used space the scan couldn't see: APFS snapshots, purgeable data, system volumes (VM, Preboot, Recovery), other users' files, and folders dir-stat isn't allowed to read.";
+
+/// The Unaccounted row: not part of any share, so the children still add up to 100%.
+pub fn unaccounted_cells(bytes: u64) -> Cells {
+    Cells {
+        disclosure: None,
+        icon: "⋯",
+        name: "Unaccounted space".into(),
+        name_tone: Tone::Secondary,
+        name_tip: Some(UNACCOUNTED_TIP.into()),
+        badge: None,
+        marker: Marker::None,
+        size: format::size(bytes),
+        size_tone: Tone::Secondary,
+        size_tip: Some(UNACCOUNTED_TIP.into()),
+        share: None,
+        percent: "—".into(),
+        items: String::new(),
+        strike: false,
+    }
 }
 
 /// The cleanup pill of a candidate row, from `display_section` (no pill while git is pending

@@ -32,7 +32,14 @@ pub struct ActivityModel {
     /// Relative to the scan root, and whether the scan is waiting on it.
     current: Option<(PathBuf, bool)>,
     last_path_refresh: Option<Instant>,
+    /// Progress fraction per second, averaged over ~10 s, and the last sample.
+    fraction_rate: Option<f64>,
+    last_fraction: Option<(Instant, f64)>,
+    eta: Option<f64>,
 }
+
+/// The ETA's rate is averaged over about this long (UX §5.2).
+const ETA_WINDOW: Duration = Duration::from_secs(10);
 
 impl ActivityModel {
     pub fn on_progress(&mut self, progress: Progress, now: Instant) {
@@ -68,6 +75,36 @@ impl ActivityModel {
         {
             self.current = Some((rel.iter().map(|n| &**n).collect(), running >= WAITING_AFTER));
         }
+    }
+
+    /// Determinate scans: a new progress fraction. The ETA shows after 5 s and past 5%, and
+    /// never grows by more than 30% from one update to the next (UX §5.2).
+    pub fn on_fraction(&mut self, fraction: f64, elapsed: Duration, now: Instant) {
+        if let Some((at, before)) = self.last_fraction {
+            let dt = now.saturating_duration_since(at).as_secs_f64();
+            if dt <= 0.0 {
+                return;
+            }
+            let instant = (fraction - before).max(0.0) / dt;
+            let alpha = 1.0 - (-dt / ETA_WINDOW.as_secs_f64()).exp();
+            self.fraction_rate = Some(
+                self.fraction_rate
+                    .map_or(instant, |r| r + alpha * (instant - r)),
+            );
+        }
+        self.last_fraction = Some((now, fraction));
+        let rate = self.fraction_rate.filter(|&r| r > 0.0);
+        self.eta = match rate {
+            Some(rate) if elapsed >= Duration::from_secs(5) && fraction >= 0.05 => {
+                let raw = (1.0 - fraction) / rate;
+                Some(self.eta.map_or(raw, |prev| raw.min(prev * 1.3)))
+            }
+            _ => None,
+        };
+    }
+
+    pub fn eta(&self) -> Option<f64> {
+        self.eta
     }
 
     pub fn items(&self) -> u64 {
@@ -132,6 +169,11 @@ pub fn lines(results: &Results, title: &str) -> Lines {
                 && let Some(fraction) = progress_fraction(results.estimate.as_ref(), p)
             {
                 line1 += &format!(" · {}%", (fraction * 100.0).floor() as u64);
+                if let Some(eta) = a.eta() {
+                    line1 += &format!(" · {}", eta_text(eta));
+                }
+            } else if let Some((done, of)) = folders_done(results) {
+                line1 += &format!(" · {done} of {of} folders done");
             }
             let mut stats = vec![
                 format::plural(a.items(), "item", "items"),
@@ -203,6 +245,42 @@ pub fn lines(results: &Results, title: &str) -> Lines {
             }
         }
     }
+}
+
+/// "about 2 min left" (UX §5.2), rounded so it doesn't flicker.
+pub fn eta_text(secs: f64) -> String {
+    if secs < 60.0 {
+        return "less than a minute left".into();
+    }
+    let minutes = (secs / 60.0).round() as u64;
+    if minutes < 90 {
+        return format!("about {minutes} min left");
+    }
+    let (h, m) = (minutes / 60, (minutes % 60) / 10 * 10);
+    if m == 0 {
+        format!("about {h} h left")
+    } else {
+        format!("about {h} h {m} min left")
+    }
+}
+
+/// Folder scans: the scan root's subfolders that are complete, of those to scan.
+fn folders_done(results: &Results) -> Option<(u64, u64)> {
+    use dirstat_core::tree::NodeState;
+    let tree = results.rescan.as_ref().map_or(&results.tree, |r| &r.sub);
+    if !tree.is_started() || tree.node(NodeId::ROOT).state() == NodeState::Pending {
+        return None;
+    }
+    let (mut done, mut of) = (0, 0);
+    for child in tree.children(NodeId::ROOT) {
+        let node = tree.node(child);
+        if matches!(node.state(), NodeState::Skipped(_)) {
+            continue;
+        }
+        of += 1;
+        done += u64::from(node.is_done());
+    }
+    (of > 0).then_some((done, of))
 }
 
 /// Determinate progress for volume roots; `None` means the indeterminate sweep.
@@ -342,6 +420,32 @@ fn progress_line<'a>(results: &Results, now: Instant) -> Element<'a, Message> {
 
 fn estimate_width(s: &str, role: TextRole) -> f32 {
     widgets::estimated_width(s, role.size)
+}
+
+#[cfg(test)]
+mod eta_tests {
+    use super::*;
+
+    #[test]
+    fn eta_waits_rounds_and_never_jumps_up() {
+        let t0 = Instant::now();
+        let s = |n: u64| t0 + Duration::from_secs(n);
+        let mut a = ActivityModel::default();
+        a.on_fraction(0.0, Duration::ZERO, s(0));
+        a.on_fraction(0.04, Duration::from_secs(4), s(4));
+        assert_eq!(a.eta(), None, "before 5 s and 5%");
+        a.on_fraction(0.10, Duration::from_secs(10), s(10));
+        let first = a.eta().expect("past 5 s and 5%");
+        assert!((60.0..200.0).contains(&first), "{first}");
+        // A stall: the raw estimate shoots up, the shown one grows at most 30%.
+        a.on_fraction(0.10, Duration::from_secs(20), s(20));
+        assert!(a.eta().unwrap() <= first * 1.3 + 1e-9);
+
+        assert_eq!(eta_text(30.0), "less than a minute left");
+        assert_eq!(eta_text(130.0), "about 2 min left");
+        assert_eq!(eta_text(2.0 * 3600.0 + 120.0), "about 2 h left");
+        assert_eq!(eta_text(3600.0 + 35.0 * 60.0), "about 1 h 30 min left");
+    }
 }
 
 #[cfg(test)]
