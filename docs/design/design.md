@@ -1663,7 +1663,9 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
   - **Fix:** the FDA bar, the popover hint and the "Open Privacy Settings" buttons showed even with FDA granted. `Results.has_fda` (checked again at each scan start) now suppresses them, and the Home card's prompt primer is hidden too.
   - **Fix:** the FDA bar named the terminal ("give Ghostty Full Disk Access") when the bundle was started with `open` from a terminal, because `TERM_PROGRAM` is passed along. A launchd parent, or `__CFBundleIdentifier` equal to our own id, now means "not from a terminal".
   - Recents survived a real restart (prefs file).
-  - Item 5 (iCloud "Optimize Storage") and item 10 (scrolling smoothness) depend on the user's answers.
+  - Item 3: the user saw several prompts (Documents, Photos, and more) and allowed them all.
+  - **Item 10** ✓: scrolling stayed smooth during the `/` scan (user); memory was measured in M10.
+  - **Item 5** not tested: no iCloud Drive with "Optimize Mac Storage" on this machine (the scans found only 3 cloud-only files, no cloud-only folders). Covered by the `meta_from_raw` dataless unit tests only.
 
 **M12 — Treemap (optional, SHOULD)**
 - UX §8 as summarized in §6.10, plus the tab bar with the "Cleanup 38 GB" label and ⌘2.
