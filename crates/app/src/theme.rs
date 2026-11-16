@@ -718,9 +718,22 @@ pub fn status_dot(theme: &Theme, safe: bool) -> container::Style {
     }
 }
 
+/// The hue band (OKLCH degrees, from → to) each group's nested blocks spread over: blue →
+/// violet → purple, red → orange → yellow, lime → green → turquoise.
+const HUE_BANDS: [(f32, f32); 3] = [(232.0, 312.0), (22.0, 98.0), (128.0, 198.0)];
+
 /// Treemap fills and their label colors (UX §11.4). `slot` is the top-level group (None =
 /// "Other" gray); levels alternate base / 72% / base; "N files" blocks use a 52% blend.
-pub fn map_fill(theme: &Theme, slot: Option<u8>, level: u8, files: bool) -> (Color, Color) {
+/// Below level 1, `hue` (-1..=1) moves the fill from the group's own hue toward either end
+/// of its band, keeping the table's lightness and chroma, so nested folders are related
+/// but distinct.
+pub fn map_fill(
+    theme: &Theme,
+    slot: Option<u8>,
+    level: u8,
+    files: bool,
+    hue: Option<f32>,
+) -> (Color, Color) {
     const INK: Color = color!(0x0b0b0b);
     let dark = theme.extended_palette().is_dark;
     // (base, base label, 72% blend, its label)
@@ -764,7 +777,28 @@ pub fn map_fill(theme: &Theme, slot: Option<u8>, level: u8, files: bool) -> (Col
             (color!(0xa8a69e), INK, color!(0xc0beb8), INK),
         ]
     };
-    let (base, base_label, mid, mid_label) = table[slot.map_or(3, |s| usize::from(s.min(2)))];
+    let group = slot.map_or(3, |s| usize::from(s.min(2)));
+    let (base, base_label, mid, mid_label) = table[group];
+    if let (Some(t), Some((from, to))) = (hue.filter(|_| level >= 2), HUE_BANDS.get(group)) {
+        let source = if level == 2 && !files { mid } else { base };
+        let own = oklch_hue(base);
+        let t = t.clamp(-1.0, 1.0);
+        let degrees = if t < 0.0 {
+            own + t * (own - from)
+        } else {
+            own + t * (to - own)
+        };
+        let mut fill = with_hue(source, degrees);
+        if files {
+            fill = blend(fill, tokens(theme).bg_surface, 0.52);
+        }
+        let label = if luminance(fill) > 0.36 {
+            INK
+        } else {
+            Color::WHITE
+        };
+        return (fill, label);
+    }
     if files {
         let fill = blend(base, tokens(theme).bg_surface, 0.52);
         let label = if luminance(fill) > 0.36 {
@@ -791,6 +825,71 @@ pub fn blend(over: Color, under: Color, alpha: f32) -> Color {
     )
 }
 
+fn oklch_hue(c: Color) -> f32 {
+    let (_, a, b) = to_oklab(c);
+    b.atan2(a).to_degrees().rem_euclid(360.0)
+}
+
+/// `color` with its OKLCH hue set to `degrees`; chroma shrinks until the result fits sRGB.
+fn with_hue(color: Color, degrees: f32) -> Color {
+    let (l, a, b) = to_oklab(color);
+    let mut chroma = (a * a + b * b).sqrt();
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    loop {
+        let (r, g, bl) = from_oklab(l, chroma * cos, chroma * sin);
+        let inside = [r, g, bl].iter().all(|v| (-0.0005..=1.0005).contains(v));
+        if inside || chroma <= 0.0 {
+            return Color::from_rgb(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), bl.clamp(0.0, 1.0));
+        }
+        chroma = (chroma - 0.004).max(0.0);
+    }
+}
+
+fn srgb_to_linear(v: f32) -> f32 {
+    if v <= 0.04045 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn linear_to_srgb(v: f32) -> f32 {
+    if v <= 0.003_130_8 {
+        v * 12.92
+    } else {
+        1.055 * v.max(0.0).powf(1.0 / 2.4) - 0.055
+    }
+}
+
+/// sRGB → OKLab (Björn Ottosson's matrices).
+fn to_oklab(c: Color) -> (f32, f32, f32) {
+    let (r, g, b) = (
+        srgb_to_linear(c.r),
+        srgb_to_linear(c.g),
+        srgb_to_linear(c.b),
+    );
+    let l = (0.412_221_47 * r + 0.536_332_55 * g + 0.051_445_995 * b).cbrt();
+    let m = (0.211_903_5 * r + 0.680_699_5 * g + 0.107_396_96 * b).cbrt();
+    let s = (0.088_302_46 * r + 0.281_718_85 * g + 0.629_978_7 * b).cbrt();
+    (
+        0.210_454_26 * l + 0.793_617_8 * m - 0.004_072_047 * s,
+        1.977_998_5 * l - 2.428_592_2 * m + 0.450_593_7 * s,
+        0.025_904_037 * l + 0.782_771_77 * m - 0.808_675_77 * s,
+    )
+}
+
+/// OKLab → sRGB components (may lie outside 0..=1 when out of gamut).
+fn from_oklab(l: f32, a: f32, b: f32) -> (f32, f32, f32) {
+    let l_ = (l + 0.396_337_78 * a + 0.215_803_76 * b).powi(3);
+    let m_ = (l - 0.105_561_346 * a - 0.063_854_17 * b).powi(3);
+    let s_ = (l - 0.089_484_18 * a - 1.291_485_5 * b).powi(3);
+    (
+        linear_to_srgb(4.076_741_7 * l_ - 3.307_711_6 * m_ + 0.230_969_94 * s_),
+        linear_to_srgb(-1.268_438 * l_ + 2.609_757_4 * m_ - 0.341_319_38 * s_),
+        linear_to_srgb(-0.004_196_086_3 * l_ - 0.703_418_6 * m_ + 1.707_614_7 * s_),
+    )
+}
+
 /// Relative luminance (sRGB), to pick white or ink labels on computed fills.
 fn luminance(c: Color) -> f32 {
     let lin = |v: f32| {
@@ -808,10 +907,61 @@ fn luminance(c: Color) -> f32 {
 mod map_color_tests {
     use super::*;
 
+    fn hue_of(c: Color) -> f32 {
+        let (_, a, b) = to_oklab(c);
+        b.atan2(a).to_degrees().rem_euclid(360.0)
+    }
+
+    #[test]
+    fn oklab_round_trips() {
+        for c in [
+            color!(0x2a78d6),
+            color!(0xeb6834),
+            color!(0x1baf7a),
+            color!(0x5f5e59),
+        ] {
+            let (l, a, b) = to_oklab(c);
+            let (r, g, bl) = from_oklab(l, a, b);
+            assert!((r - c.r).abs() < 0.002 && (g - c.g).abs() < 0.002 && (bl - c.b).abs() < 0.002);
+        }
+    }
+
+    #[test]
+    fn nested_hues_walk_the_group_band() {
+        for theme in [Theme::Light, Theme::Dark] {
+            for (slot, (from, to)) in HUE_BANDS.iter().enumerate() {
+                let at = |t| map_fill(&theme, Some(slot as u8), 2, false, Some(t)).0;
+                let (h0, h1) = (hue_of(at(-1.0)), hue_of(at(1.0)));
+                assert!(
+                    (h0 - from).abs() < 4.0 && (h1 - to).abs() < 4.0,
+                    "{slot}: {h0} {h1}"
+                );
+                // Offset 0 keeps the group's own hue; steps differ visibly.
+                let own = hue_of(map_fill(&theme, Some(slot as u8), 1, false, None).0);
+                assert!((hue_of(at(0.0)) - own).abs() < 4.0);
+                assert_ne!(at(-1.0), at(-0.5));
+            }
+            // Gray groups and level 1 ignore the hue.
+            assert_eq!(
+                map_fill(&theme, None, 2, false, Some(0.7)),
+                map_fill(&theme, None, 2, false, None)
+            );
+            assert_eq!(
+                map_fill(&theme, Some(0), 1, false, Some(0.7)),
+                map_fill(&theme, Some(0), 1, false, None)
+            );
+        }
+        // Light yellow fills take ink labels, deep reds white ones.
+        assert_eq!(
+            map_fill(&Theme::Light, Some(1), 2, false, Some(1.0)).1,
+            color!(0x0b0b0b)
+        );
+    }
+
     #[test]
     fn files_blend_matches_the_spec_table() {
         let light = Theme::Light;
-        let (fill, label) = map_fill(&light, Some(0), 1, true);
+        let (fill, label) = map_fill(&light, Some(0), 1, true, None);
         let hex = |c: Color| {
             let [r, g, b, _] = c.into_rgba8();
             (r, g, b)
@@ -824,7 +974,7 @@ mod map_color_tests {
             hex(fill)
         );
         assert_eq!(label, color!(0x0b0b0b));
-        let (fill, label) = map_fill(&Theme::Dark, Some(0), 1, true);
+        let (fill, label) = map_fill(&Theme::Dark, Some(0), 1, true, None);
         let (r, g, b) = hex(fill);
         assert!(
             r.abs_diff(0x2a) <= 6 && g.abs_diff(0x53) <= 6 && b.abs_diff(0x83) <= 6,
@@ -832,9 +982,9 @@ mod map_color_tests {
             hex(fill)
         );
         assert_eq!(label, Color::WHITE);
-        assert_eq!(map_fill(&light, None, 2, false).0, color!(0xc0beb8));
+        assert_eq!(map_fill(&light, None, 2, false, None).0, color!(0xc0beb8));
         assert_eq!(
-            map_fill(&light, Some(2), 3, false).0,
+            map_fill(&light, Some(2), 3, false, None).0,
             color!(0x1baf7a),
             "level 3 = base"
         );

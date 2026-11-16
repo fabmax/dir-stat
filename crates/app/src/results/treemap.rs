@@ -68,6 +68,10 @@ pub struct Block {
     pub level: u8,
     /// The top-level group's color slot (0..3), `None` = "Other" gray.
     pub slot: Option<u8>,
+    /// Below level 1: the hue offset from the group's own color (-1..=1, toward either end
+    /// of its band), so nested folders get related but different hues. `None` = the group
+    /// color itself (level 1, and only children).
+    pub hue: Option<f32>,
     /// Level 1 with an 18 px "Name  Size" strip.
     pub header: bool,
     pub name: String,
@@ -196,7 +200,7 @@ pub fn layout(tree: &Tree, zoom: NodeId, size: Size, slots: &Slots) -> Layout {
         return out;
     }
     let bounds = Rectangle::new(Point::ORIGIN, size);
-    lay_out_children(tree, zoom, bounds, 1, None, None, slots, &mut out);
+    lay_out_children(tree, zoom, bounds, 1, None, None, None, slots, &mut out);
     out
 }
 
@@ -207,6 +211,7 @@ fn lay_out_children(
     area: Rectangle,
     level: u8,
     slot: Option<u8>,
+    parent_hue: Option<f32>,
     parent: Option<usize>,
     slots: &Slots,
     out: &mut Layout,
@@ -214,7 +219,8 @@ fn lay_out_children(
     let entries = entries(tree, dir);
     let values: Vec<u64> = entries.iter().map(|e| e.1).collect();
     let rects = squarify(&values, area);
-    for ((kind, bytes, name), rect) in entries.into_iter().zip(rects) {
+    let hues = hue_steps(&entries, level, parent_hue);
+    for (((kind, bytes, name), rect), hue) in entries.into_iter().zip(rects).zip(hues) {
         // Half a gap on each side: siblings end up a full gap apart.
         let rect = inset(rect, GAP / 2.0);
         if rect.width < MIN_SIDE || rect.height < MIN_SIDE {
@@ -233,6 +239,7 @@ fn lay_out_children(
             rect,
             level,
             slot,
+            hue: if level == 1 { None } else { hue },
             header,
             name,
             bytes,
@@ -247,10 +254,54 @@ fn lay_out_children(
                 inner.height -= HEADER_H - GAP;
             }
             if inner.width >= SUBDIVIDE.width && inner.height >= SUBDIVIDE.height {
-                lay_out_children(tree, id, inner, level + 1, slot, Some(index), slots, out);
+                let hue = out.blocks[index].hue;
+                lay_out_children(
+                    tree,
+                    id,
+                    inner,
+                    level + 1,
+                    slot,
+                    hue,
+                    Some(index),
+                    slots,
+                    out,
+                );
             }
         }
     }
+}
+
+/// Hue offsets for one folder's children, by **name** order so they don't shuffle while
+/// sizes change: level 2 spreads over the whole band (up to 5 steps, -1..=1), level 3 stays
+/// close to its parent's hue. "N files" and "N more" blocks keep the parent's hue.
+fn hue_steps(
+    entries: &[(BlockKind, u64, String)],
+    level: u8,
+    parent_hue: Option<f32>,
+) -> Vec<Option<f32>> {
+    let mut by_name: Vec<usize> = (0..entries.len())
+        .filter(|&i| matches!(entries[i].0, BlockKind::Dir(_) | BlockKind::File(..)))
+        .collect();
+    by_name.sort_by(|&a, &b| entries[a].2.cmp(&entries[b].2));
+    let mut out = vec![parent_hue; entries.len()];
+    match level {
+        // An only child keeps the group's own color: there is nothing to tell apart.
+        2 if by_name.len() > 1 => {
+            let steps = by_name.len().min(5);
+            for (rank, &i) in by_name.iter().enumerate() {
+                out[i] = Some(2.0 * (rank % steps) as f32 / (steps - 1) as f32 - 1.0);
+            }
+        }
+        l if l >= 3 && by_name.len() > 1 => {
+            let base = parent_hue.unwrap_or(0.0);
+            for (rank, &i) in by_name.iter().enumerate() {
+                let step = (rank % 3) as f32 - 1.0;
+                out[i] = Some((base + step * 0.24).clamp(-1.0, 1.0));
+            }
+        }
+        _ => {}
+    }
+    out
 }
 
 fn inset(r: Rectangle, by: f32) -> Rectangle {
@@ -520,6 +571,46 @@ mod tests {
         );
         let hit = l.hit(center).unwrap();
         assert_eq!(l.blocks[hit].kind, deep.kind);
+    }
+
+    #[test]
+    fn nested_blocks_spread_over_the_hue_band_by_name() {
+        let tree = sample();
+        let mut slots = Slots::default();
+        slots.update(&tree, NodeId::ROOT);
+        let l = layout(&tree, NodeId::ROOT, Size::new(800.0, 600.0), &slots);
+        let hue = |p: &str| {
+            let id = find(&tree, p);
+            l.blocks
+                .iter()
+                .find(|b| b.kind == BlockKind::Dir(id))
+                .unwrap()
+                .hue
+        };
+        assert_eq!(hue("/r/a"), None, "level 1: the group color");
+        // a1 and a2: the two ends of the band, by name.
+        assert_eq!(hue("/r/a/a1"), Some(-1.0));
+        assert_eq!(hue("/r/a/a2"), Some(1.0));
+        // An only child keeps its parent's hue.
+        assert_eq!(hue("/r/a/a1/deep"), Some(-1.0));
+        // `b` has no subfolders; a folder with one child keeps the group color.
+        let only = TreeBuilder::new(
+            "/r",
+            dir("r").child(dir("x").child(dir("only").small_files(1, 50_000_000))),
+        )
+        .build();
+        let mut slots = Slots::default();
+        slots.update(&only, NodeId::ROOT);
+        let l = layout(&only, NodeId::ROOT, Size::new(400.0, 300.0), &slots);
+        let id = only.find_path(std::path::Path::new("/r/x/only")).unwrap();
+        assert_eq!(
+            l.blocks
+                .iter()
+                .find(|b| b.kind == BlockKind::Dir(id))
+                .unwrap()
+                .hue,
+            None
+        );
     }
 
     #[test]

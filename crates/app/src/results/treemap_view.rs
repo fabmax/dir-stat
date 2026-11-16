@@ -179,7 +179,8 @@ impl canvas::Program<Message> for MapProgram<'_> {
             frame.fill_rectangle(Point::ORIGIN, frame.size(), tokens.bg_surface);
             for block in &layout.blocks {
                 let files = matches!(block.kind, BlockKind::Files(_));
-                let (fill, label) = theme::map_fill(theme, block.slot, block.level, files);
+                let (fill, label) =
+                    theme::map_fill(theme, block.slot, block.level, files, block.hue);
                 let radius = if block.level == 1 { 4.0 } else { 2.0 };
                 let r = block.rect;
                 frame.fill(
@@ -447,7 +448,7 @@ fn legend(results: &Results) -> Element<'_, Message> {
     let mut entries = row![].spacing(12).align_y(Center);
     let swatch = |slot: Option<u8>| {
         container(space().width(10).height(10)).style(move |t: &Theme| container::Style {
-            background: Some(theme::map_fill(t, slot, 1, false).0.into()),
+            background: Some(theme::map_fill(t, slot, 1, false, None).0.into()),
             border: iced::Border {
                 radius: 2.0.into(),
                 ..iced::Border::default()

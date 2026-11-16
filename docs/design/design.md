@@ -1677,6 +1677,7 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
   - The legend wraps to a second line in a narrow pane (the spec's single 28 px row didn't fit four entries at 400 px), largest first.
   - No right-click menu (the tree has none either). Hover and the tooltip aren't covered by screenshots (the script can't move the pointer), only by the app tests.
   - The tab bar replaces the cleanup pane's own header; the "Cleanup 38 GB" label is `cleanup_pane::tab_total`.
+  - **User request (2026-11-16): more colourful nesting.** Deviation from UX §8.4: below level 1, blocks move along their group's hue band in OKLCH (blue → violet → purple, red → orange → yellow, lime → green → turquoise), keeping the table's lightness and chroma (chroma reduced only to stay in sRGB). Siblings get their step by name order (up to 5 steps across the band), so colours don't shuffle while sizes change; level 3 shifts ±0.24 around its parent; only children keep the group colour; "Other" stays gray. Labels pick white or ink by luminance. In dark mode the yellow end reads ochre, because the table's dark lightness keeps white labels readable.
 
 The dependency order is M0 → M1 → M2 → M3 → M4 → M5 → M6. After M6: M7 any time; M8 before M9 (the pane needs the candidate status); M10 after M8 (rescan eligibility depends on pending trash). M11 comes last, then the optional M12. M1–M3 have no GUI and can be checked purely by tests.
 
