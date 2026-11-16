@@ -1670,6 +1670,13 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
 **M12 — Treemap (optional, SHOULD)**
 - UX §8 as summarized in §6.10, plus the tab bar with the "Cleanup 38 GB" label and ⌘2.
 - *Accept:* the layout of 200 × 3-level blocks takes under 8 ms; no relayout while the pointer is over the map; selection syncs both ways.
+- *Done 2026-11-16.* The 200 × 20 × 10 layout test passes the 8 ms budget in release. Unit tests: squarify proportions and no overlap, three levels with nesting inside the header strip, the 200-children cap ("N more"), skipped tiny and unsubdivided blocks, sticky slots (a freed slot goes to the newcomer; zoom resets), hit testing of the deepest block, the relayout clock (1 s, pointer defer ≤ 5 s), the "N files" colour blend against the UX table. App-level tests: ⌘2/⌘1 and the remembered tab, Tab staying in the tree, click selects folders and files in the tree (opening the folder), double-click zooms (into a file's folder), the selection outlines its block or nearest drawn ancestor, hover highlights the tree row and leaving clears it, no relayout under the pointer while scanning. Screenshots on `~/dev`, light and dark: scanning, complete, a selected folder with the rest dimmed, zoomed in. Notes:
+  - The canvas computes the layout itself, for its own size, whenever the size or `MapClock.version` changes (a `RefCell` in `MapState`); `Results` only decides when a relayout is allowed and updates the slots then, so the legend, the hit test and the drawing always agree.
+  - Level 3 is the base colour again, as specified; where level-3 blocks fill a level-2 block, the 72% colour shows only in the gaps.
+  - Labels in blocks show the size at the last layout; while scanning they may lag the tree by up to a second.
+  - The legend wraps to a second line in a narrow pane (the spec's single 28 px row didn't fit four entries at 400 px), largest first.
+  - No right-click menu (the tree has none either). Hover and the tooltip aren't covered by screenshots (the script can't move the pointer), only by the app tests.
+  - The tab bar replaces the cleanup pane's own header; the "Cleanup 38 GB" label is `cleanup_pane::tab_total`.
 
 The dependency order is M0 → M1 → M2 → M3 → M4 → M5 → M6. After M6: M7 any time; M8 before M9 (the pane needs the candidate status); M10 after M8 (rescan eligibility depends on pending trash). M11 comes last, then the optional M12. M1–M3 have no GUI and can be checked purely by tests.
 

@@ -15,6 +15,8 @@ pub mod scan_task;
 pub mod selection_bar;
 pub mod trash;
 pub mod tree_view;
+pub mod treemap;
+pub mod treemap_view;
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -83,6 +85,7 @@ pub struct Results {
     /// macOS: dir-stat has Full Disk Access (checked when the scan starts). What is still
     /// blocked then is guarded by System Integrity Protection: no bar, no settings button.
     pub has_fda: bool,
+    pub map: treemap_view::MapState,
 }
 
 /// A rescan accumulates into its own tree; the main tree keeps the old numbers until the
@@ -165,6 +168,7 @@ impl Results {
             cleanup_seen: (0, NodeId::ROOT),
             rescan: None,
             has_fda: false,
+            map: treemap_view::MapState::default(),
             tree: Tree::opening(root),
             phase: Phase::Opening,
             active: Some(active),
@@ -210,6 +214,7 @@ impl Results {
                     }
                     self.view.on_listing(&self.tree, id, effect);
                 }
+                self.map.touch();
                 if from_active {
                     self.activity.on_progress(batch.progress, now);
                     let p = &self.activity.progress;
@@ -238,6 +243,7 @@ impl Results {
                         self.scroll_to = self.view.settle(&self.tree, now);
                         self.candidates.collect(&self.tree);
                         self.cleanup_dirty = true;
+                        self.map.touch();
                     }
                 } else {
                     self.draining = None;
@@ -457,6 +463,7 @@ impl Results {
         }
         self.scroll_to = Some(saved.restore(self, replaced, now));
         self.cleanup_dirty = true;
+        self.map.touch();
     }
 
     pub fn tick(&mut self, now: Instant, button_held: bool) {
@@ -475,6 +482,8 @@ impl Results {
         if self.candidates.collect(&self.tree) && self.active.is_none() {
             self.cleanup_dirty = true;
         }
+        let scanning = self.active.is_some() || self.rescan.is_some();
+        self.map.tick(&self.tree, self.view.zoom, now, scanning);
         if let Some(offset) = self
             .view
             .tick(&self.tree, now, self.active.is_some(), button_held)
@@ -554,6 +563,43 @@ impl Results {
                 .view
                 .reveal_node(&mut self.tree, id, now)
                 .or(self.scroll_to);
+        }
+    }
+
+    /// Selects `key` in the tree and scrolls it into view: its ancestors open, and for a file
+    /// or the "N files" row its folder too (a click in the Map tab, UX §8.5).
+    pub fn reveal_key(&mut self, key: RowKey, now: Instant) {
+        let dir = key.dir();
+        if self.tree.get(dir).is_none() {
+            return;
+        }
+        if dir != self.view.zoom {
+            self.reveal_in_tree(dir, now);
+        }
+        if key != RowKey::Dir(dir) {
+            if dir != self.view.zoom && !self.tree.node(dir).has_flag(NodeFlags::EXPANDED) {
+                let effect = self.view.toggle(&mut self.tree, RowKey::Dir(dir), now);
+                self.scroll_to = effect.scroll.or(self.scroll_to);
+            }
+            if self.view.rows.iter().any(|r| r.key == key) {
+                self.view.selection = Some(key);
+            }
+        }
+    }
+
+    /// A double-click in the map: zoom into the folder, or into a file's folder.
+    pub fn zoom_to_key(&mut self, key: RowKey, now: Instant) {
+        match key {
+            RowKey::Dir(id) => self.zoom_to(id, now),
+            other => {
+                let dir = other.dir();
+                if dir != self.view.zoom {
+                    self.zoom_to(dir, now);
+                }
+                if self.view.rows.iter().any(|r| r.key == other) {
+                    self.view.selection = Some(other);
+                }
+            }
         }
     }
 
@@ -710,6 +756,7 @@ impl Results {
             self.cleanup.keep_trashed.insert(candidate);
         }
         self.cleanup_dirty = true;
+        self.map.touch();
         if let Some(trash_node) = home.and_then(|h| self.tree.find_path(&h.join(".Trash"))) {
             self.tree.set_flag(trash_node, NodeFlags::OUTDATED, true);
         }
@@ -736,6 +783,7 @@ impl Results {
         flashing
             || self.is_scanning()
             || self.is_rescanning()
+            || self.map.clock.dirty
             || self.candidates.busy()
             || !self.trash_jobs.is_empty()
             || self.view.reorder.post_trash

@@ -29,6 +29,7 @@ use crate::results::rows::RowKey;
 use crate::results::scan_task::{self, ScanIdGen};
 use crate::results::trash::{self, Focus, Modal, TrashTarget};
 use crate::results::tree_view::Effect;
+use crate::results::treemap_view;
 use crate::results::{
     Pane, Results, ScanOutcome, StopOutcome, activity, columns, errors, nav, selection_bar,
 };
@@ -130,6 +131,12 @@ pub enum Message {
     CleanupSmaller(Section),
     CleanupScrolled(scrollable::Viewport),
     CopyCommand(String),
+    // map tab
+    ShowMapTab(bool),
+    MapHover(Option<RowKey>),
+    MapPressed(RowKey),
+    MapActivated(RowKey),
+    PointerInMap(bool),
     // trash
     RequestTrash,
     ConfirmTrash,
@@ -418,6 +425,32 @@ impl App {
                     r.cleanup.viewport_h = viewport.bounds().height;
                 }
             }
+            Message::ShowMapTab(map) => self.show_tab(map),
+            Message::MapHover(key) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.map.hover = key;
+                }
+            }
+            Message::PointerInMap(inside) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.map.pointer_over = inside;
+                    if !inside {
+                        r.map.hover = None;
+                    }
+                }
+            }
+            Message::MapPressed(key) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.focus = Pane::Tree;
+                    r.reveal_key(key, Instant::now());
+                }
+            }
+            Message::MapActivated(key) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.focus = Pane::Tree;
+                    r.zoom_to_key(key, Instant::now());
+                }
+            }
             Message::CopyCommand(command) => {
                 self.toast = Some(Toast::info("Copied the command"));
                 return iced::clipboard::write(command);
@@ -552,6 +585,21 @@ impl App {
         }
     }
 
+    /// ⌘1 / ⌘2 or a tab click: shows the side pane with that tab, remembered in the prefs.
+    fn show_tab(&mut self, map: bool) {
+        self.side_pane = true;
+        if self.prefs.hide_side_pane || self.prefs.map_tab != map {
+            self.prefs.hide_side_pane = false;
+            self.prefs.map_tab = map;
+            self.env.prefs_store.save(&self.prefs);
+        }
+        if let Screen::Results(r) = &mut self.screen
+            && map
+        {
+            r.focus = Pane::Tree;
+        }
+    }
+
     /// New Scan while a scan or rescan runs asks first (UX §5.2).
     fn new_scan(&mut self) {
         match &self.screen {
@@ -682,16 +730,16 @@ impl App {
                     r.focus = Pane::Tree;
                 }
             }
-            (Screen::Results(r), KeyAction::PaneCleanup) => {
-                self.side_pane = true;
-                if self.prefs.hide_side_pane {
-                    self.prefs.hide_side_pane = false;
-                    self.env.prefs_store.save(&self.prefs);
+            (Screen::Results(_), KeyAction::PaneCleanup) => {
+                self.show_tab(false);
+                if let Screen::Results(r) = &mut self.screen {
+                    r.focus = Pane::Cleanup;
                 }
-                r.focus = Pane::Cleanup;
             }
+            (Screen::Results(_), KeyAction::PaneMap) => self.show_tab(true),
             (Screen::Results(r), KeyAction::Tab | KeyAction::ShiftTab) => {
-                if side_pane_fits(self.window_size.width) && self.side_pane {
+                // The map has no keyboard focus in v1 (UX §8.5).
+                if side_pane_fits(self.window_size.width) && self.side_pane && !self.prefs.map_tab {
                     r.focus = if r.focus == Pane::Tree {
                         Pane::Cleanup
                     } else {
@@ -1134,11 +1182,19 @@ impl App {
         if !(self.side_pane && side_pane_fits(width)) {
             return tree.into();
         }
-        let pane = container(cleanup_pane::view(
-            &results.cleanup,
-            results.focus == Pane::Cleanup,
-        ))
-        .width(side_pane_width(width));
+        let map = self.prefs.map_tab;
+        let body: Element<'a, Message> = if map {
+            treemap_view::view(results, self.env.home.as_deref())
+        } else {
+            cleanup_pane::view(&results.cleanup, results.focus == Pane::Cleanup)
+        };
+        let pane = container(column![
+            tab_bar(map, cleanup_pane::tab_total(&results.cleanup.model)),
+            iced::widget::rule::horizontal(1),
+            body
+        ])
+        .width(side_pane_width(width))
+        .style(theme::surface);
         row![
             tree,
             container(space())
@@ -1149,6 +1205,42 @@ impl App {
         ]
         .into()
     }
+}
+
+/// "Cleanup 38 GB" · "Map" (UX §6.1): 36 px, the active tab underlined in accent.
+fn tab_bar<'a>(map: bool, total: Option<String>) -> Element<'a, Message> {
+    let tab = |label: Element<'a, Message>, active: bool, show_map: bool| {
+        let underline = container(space().height(2))
+            .width(Fill)
+            .style(move |t: &iced::Theme| iced::widget::container::Style {
+                background: active.then(|| theme::tokens(t).accent.into()),
+                ..Default::default()
+            });
+        button(
+            column![
+                container(label).height(34).center_y(34).padding([0, 4]),
+                underline
+            ]
+            .width(iced::Shrink),
+        )
+        .padding(0)
+        .style(theme::row_button)
+        .on_press(Message::ShowMapTab(show_map))
+    };
+    let cleanup_label = row![theme::BODY_STRONG.text("Cleanup")]
+        .push(total.map(|t| theme::BODY.text(t).style(theme::text_secondary)))
+        .spacing(6)
+        .align_y(iced::Center);
+    container(
+        row![
+            tab(cleanup_label.into(), !map, false),
+            tab(theme::BODY_STRONG.text("Map").into(), map, true)
+        ]
+        .spacing(16),
+    )
+    .padding([0, 12])
+    .height(36)
+    .into()
 }
 
 /// clamp(320, 34% of the window, 480).

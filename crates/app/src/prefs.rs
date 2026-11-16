@@ -14,6 +14,8 @@ pub struct Prefs {
     pub recents: Vec<(PathBuf, i64)>,
     /// ⌘0 hid the cleanup pane.
     pub hide_side_pane: bool,
+    /// The side pane shows the Map tab (⌘2) instead of Cleanup (⌘1).
+    pub map_tab: bool,
     pub sort: crate::results::order::Sort,
 }
 

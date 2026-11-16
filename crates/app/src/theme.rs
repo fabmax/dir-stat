@@ -657,6 +657,7 @@ pub fn tree_row_state(
     selected: bool,
     focused: bool,
     flashing: bool,
+    hovered: bool,
 ) -> container::Style {
     let tokens = tokens(theme);
     let background = if flashing {
@@ -665,6 +666,8 @@ pub fn tree_row_state(
         Some(tokens.bg_selected)
     } else if selected {
         Some(tokens.bg_selected_unfocused)
+    } else if hovered {
+        Some(tokens.bg_hover)
     } else {
         None
     };
@@ -712,5 +715,128 @@ pub fn status_dot(theme: &Theme, safe: bool) -> container::Style {
             ..Border::default()
         },
         ..container::Style::default()
+    }
+}
+
+/// Treemap fills and their label colors (UX §11.4). `slot` is the top-level group (None =
+/// "Other" gray); levels alternate base / 72% / base; "N files" blocks use a 52% blend.
+pub fn map_fill(theme: &Theme, slot: Option<u8>, level: u8, files: bool) -> (Color, Color) {
+    const INK: Color = color!(0x0b0b0b);
+    let dark = theme.extended_palette().is_dark;
+    // (base, base label, 72% blend, its label)
+    let table: [(Color, Color, Color, Color); 4] = if dark {
+        [
+            (
+                color!(0x3987e5),
+                Color::WHITE,
+                color!(0x3068ac),
+                Color::WHITE,
+            ),
+            (
+                color!(0xd95926),
+                Color::WHITE,
+                color!(0xa44722),
+                Color::WHITE,
+            ),
+            (
+                color!(0x199e70),
+                Color::WHITE,
+                color!(0x197958),
+                Color::WHITE,
+            ),
+            (
+                color!(0x5f5e59),
+                Color::WHITE,
+                color!(0x4c4b47),
+                Color::WHITE,
+            ),
+        ]
+    } else {
+        [
+            (
+                color!(0x2a78d6),
+                Color::WHITE,
+                color!(0x659de0),
+                Color::WHITE,
+            ),
+            (color!(0xeb6834), Color::WHITE, color!(0xf0916c), INK),
+            (color!(0x1baf7a), Color::WHITE, color!(0x5ac59e), INK),
+            (color!(0xa8a69e), INK, color!(0xc0beb8), INK),
+        ]
+    };
+    let (base, base_label, mid, mid_label) = table[slot.map_or(3, |s| usize::from(s.min(2)))];
+    if files {
+        let fill = blend(base, tokens(theme).bg_surface, 0.52);
+        let label = if luminance(fill) > 0.36 {
+            INK
+        } else {
+            Color::WHITE
+        };
+        return (fill, label);
+    }
+    if level == 2 {
+        (mid, mid_label)
+    } else {
+        (base, base_label)
+    }
+}
+
+/// `over` at `alpha` on top of `under`.
+pub fn blend(over: Color, under: Color, alpha: f32) -> Color {
+    let mix = |a: f32, b: f32| a * alpha + b * (1.0 - alpha);
+    Color::from_rgb(
+        mix(over.r, under.r),
+        mix(over.g, under.g),
+        mix(over.b, under.b),
+    )
+}
+
+/// Relative luminance (sRGB), to pick white or ink labels on computed fills.
+fn luminance(c: Color) -> f32 {
+    let lin = |v: f32| {
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+}
+
+/// The "N files" fill in the UX table: light blue 52% ≈ #8fb7e8 (ink), dark ≈ #2a5383.
+#[cfg(test)]
+mod map_color_tests {
+    use super::*;
+
+    #[test]
+    fn files_blend_matches_the_spec_table() {
+        let light = Theme::Light;
+        let (fill, label) = map_fill(&light, Some(0), 1, true);
+        let hex = |c: Color| {
+            let [r, g, b, _] = c.into_rgba8();
+            (r, g, b)
+        };
+        let (r, g, b) = hex(fill);
+        let (er, eg, eb) = (0x8f, 0xb7, 0xe8);
+        assert!(
+            r.abs_diff(er) <= 6 && g.abs_diff(eg) <= 6 && b.abs_diff(eb) <= 6,
+            "{:?}",
+            hex(fill)
+        );
+        assert_eq!(label, color!(0x0b0b0b));
+        let (fill, label) = map_fill(&Theme::Dark, Some(0), 1, true);
+        let (r, g, b) = hex(fill);
+        assert!(
+            r.abs_diff(0x2a) <= 6 && g.abs_diff(0x53) <= 6 && b.abs_diff(0x83) <= 6,
+            "{:?}",
+            hex(fill)
+        );
+        assert_eq!(label, Color::WHITE);
+        assert_eq!(map_fill(&light, None, 2, false).0, color!(0xc0beb8));
+        assert_eq!(
+            map_fill(&light, Some(2), 3, false).0,
+            color!(0x1baf7a),
+            "level 3 = base"
+        );
     }
 }

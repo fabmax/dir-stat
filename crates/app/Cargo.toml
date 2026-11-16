@@ -19,7 +19,7 @@ screenshot = ["dep:png"]
 [dependencies]
 dirstat-core = { path = "../core" }
 # Default features stay on. `tokio` provides time::every and the executor.
-iced = { version = "0.14", features = ["tokio"] }
+iced = { version = "0.14", features = ["tokio", "canvas"] }
 tokio = { version = "1", features = ["rt"] }
 rfd = "0.17"
 dirs = "6"

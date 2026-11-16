@@ -357,6 +357,8 @@ fn row_view<'a>(
     let line = line.push(space().width(16));
 
     let selected = results.view.selection == Some(r.key);
+    // The block under the pointer in the Map tab (UX §8.4 cross-highlight).
+    let hovered = results.map.hover == Some(r.key);
     let focused = results.focus == super::Pane::Tree;
     // Revealed from the cleanup pane: two flashes over 600 ms.
     let flashing = results.view.flash.is_some_and(|(key, at)| {
@@ -366,7 +368,7 @@ fn row_view<'a>(
     let base = container(line)
         .width(Fill)
         .height(ROW_H)
-        .style(move |t| theme::tree_row_state(t, selected, focused, flashing));
+        .style(move |t| theme::tree_row_state(t, selected, focused, flashing, hovered));
     let highlight = container(space())
         .width(Fill)
         .height(Fill)

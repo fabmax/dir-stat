@@ -1084,3 +1084,129 @@ fn with_full_disk_access_privacy_errors_raise_no_bar() {
         );
     }
 }
+
+mod map_flow {
+    use super::*;
+    use crate::keys::KeyAction;
+    use crate::results::Pane;
+    use crate::results::rows::RowKey;
+    use crate::results::treemap::BlockKind;
+    use crate::results::treemap_view::selected_block;
+    use dirstat_core::tree::NodeFlags;
+    use dirstat_core::tree::testing::large;
+
+    fn builder() -> TreeBuilder {
+        TreeBuilder::new(
+            "/r",
+            dir("r")
+                .child(
+                    dir("a")
+                        .child(dir("deep").small_files(1, 40_000_000))
+                        .large(large("big.iso", 30_000_000)),
+                )
+                .child(dir("b").small_files(1, 20_000_000)),
+        )
+    }
+
+    fn find(app: &App, p: &str) -> NodeId {
+        results(app)
+            .tree
+            .find_path(std::path::Path::new(p))
+            .unwrap()
+    }
+
+    #[test]
+    fn map_tab_clicks_select_and_double_clicks_zoom() {
+        let mut app = app();
+        app.window_size = iced::Size::new(1400.0, 900.0);
+        completed(&mut app, &builder());
+        let _ = app.update(Message::Key(KeyAction::PaneMap));
+        assert!(app.prefs().map_tab, "⌘2 shows the map and remembers it");
+        let _ = app.update(Message::Key(KeyAction::Tab));
+        assert_eq!(results(&app).focus, Pane::Tree, "the map takes no focus");
+
+        // A click on a nested folder selects it and opens its ancestors in the tree.
+        let deep = find(&app, "/r/a/deep");
+        let _ = app.update(Message::MapPressed(RowKey::Dir(deep)));
+        let r = results(&app);
+        assert_eq!(r.view.selection, Some(RowKey::Dir(deep)));
+        assert!(r.view.rows.iter().any(|row| row.key == RowKey::Dir(deep)));
+
+        // A file block opens its folder and selects the file row.
+        let a = find(&app, "/r/a");
+        let _ = app.update(Message::MapPressed(RowKey::File(a, 0)));
+        assert_eq!(results(&app).view.selection, Some(RowKey::File(a, 0)));
+        assert!(results(&app).tree.node(a).has_flag(NodeFlags::EXPANDED));
+
+        // Double-click: zoom into the folder; on a file, into its folder.
+        let _ = app.update(Message::MapActivated(RowKey::Dir(deep)));
+        assert_eq!(results(&app).view.zoom, deep);
+        let _ = app.update(Message::Key(KeyAction::Back));
+        let _ = app.update(Message::ZoomTo(NodeId::ROOT));
+        let _ = app.update(Message::MapActivated(RowKey::File(a, 0)));
+        assert_eq!(results(&app).view.zoom, a);
+        assert_eq!(results(&app).view.selection, Some(RowKey::File(a, 0)));
+
+        // ⌘1 goes back to Cleanup.
+        let _ = app.update(Message::Key(KeyAction::PaneCleanup));
+        assert!(!app.prefs().map_tab);
+        assert_eq!(results(&app).focus, Pane::Cleanup);
+    }
+
+    #[test]
+    fn selection_and_hover_sync_both_ways() {
+        let mut app = app();
+        completed(&mut app, &builder());
+        let _ = app.update(Message::Tick(std::time::Instant::now()));
+        let b = find(&app, "/r/b");
+        let _ = app.update(Message::RowPressed(RowKey::Dir(b)));
+        let r = results(&app);
+        let layout = r
+            .map
+            .layout_for(&r.tree, r.view.zoom, iced::Size::new(400.0, 600.0));
+        let index = selected_block(r, &layout).expect("the tree selection is outlined");
+        assert_eq!(layout.blocks[index].kind, BlockKind::Dir(b));
+
+        // A deep selection outlines its nearest drawn ancestor.
+        let deep = find(&app, "/r/a/deep");
+        let _ = app.update(Message::RowPressed(RowKey::Dir(deep)));
+        let small = results(&app).map.layout_for(
+            &results(&app).tree,
+            NodeId::ROOT,
+            iced::Size::new(90.0, 60.0),
+        );
+        let index = selected_block(results(&app), &small).unwrap();
+        assert!(matches!(small.blocks[index].kind, BlockKind::Dir(_)));
+
+        let _ = app.update(Message::MapHover(Some(RowKey::Dir(b))));
+        assert_eq!(results(&app).map.hover, Some(RowKey::Dir(b)));
+        let _ = app.update(Message::PointerInMap(false));
+        assert_eq!(
+            results(&app).map.hover,
+            None,
+            "leaving the map clears the highlight"
+        );
+    }
+
+    #[test]
+    fn no_relayout_under_the_pointer_while_scanning() {
+        let mut app = app();
+        let builder = builder();
+        let id = app.start_simulated("/r");
+        let _ = app.update(Message::Scan(id, Update::Started(builder.root_info())));
+        let t0 = std::time::Instant::now();
+        let _ = app.update(Message::Tick(t0));
+        let before = results(&app).map.clock.version;
+        let _ = app.update(Message::PointerInMap(true));
+        let _ = app.update(Message::Scan(id, batch(builder.listings())));
+        let _ = app.update(Message::Tick(t0 + std::time::Duration::from_secs(2)));
+        assert_eq!(
+            results(&app).map.clock.version,
+            before,
+            "pointer over the map"
+        );
+        let _ = app.update(Message::PointerInMap(false));
+        let _ = app.update(Message::Tick(t0 + std::time::Duration::from_secs(3)));
+        assert_eq!(results(&app).map.clock.version, before + 1);
+    }
+}

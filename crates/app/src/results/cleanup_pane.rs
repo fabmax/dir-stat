@@ -171,24 +171,19 @@ impl CleanupPane {
     }
 }
 
+/// The Safe total for the "Cleanup 38 GB" tab label, from 100 MB on (UX §7).
+pub fn tab_total(model: &CleanupModel) -> Option<String> {
+    (model.safe_total >= 100_000_000).then(|| {
+        if model.scanning {
+            format::size_at_least(model.safe_total)
+        } else {
+            format::size(model.safe_total)
+        }
+    })
+}
+
 pub fn view<'a>(pane: &'a CleanupPane, focused: bool) -> Element<'a, Message> {
     let m = &pane.model;
-    let mut header = row![theme::TITLE.text("Cleanup")]
-        .spacing(8)
-        .align_y(iced::Bottom);
-    if m.safe_total >= 100_000_000 {
-        header = header.push(
-            theme::BODY
-                .text(if m.scanning {
-                    format::size_at_least(m.safe_total)
-                } else {
-                    format::size(m.safe_total)
-                })
-                .style(theme::text_secondary),
-        );
-    }
-    let header = container(header).padding([0, 12]).height(36).center_y(36);
-
     let mut body = Column::new().spacing(8).padding([12, 12]);
     let mut list = Column::new().padding([LIST_PAD, 12.0]);
     if let Some(info) = &m.info {
@@ -311,8 +306,6 @@ pub fn view<'a>(pane: &'a CleanupPane, focused: bool) -> Element<'a, Message> {
     )
     .padding([8, 12]);
     let pane_body = column![
-        header,
-        rule::horizontal(1),
         body,
         (!m.sections.is_empty()).then(|| rule::horizontal(1)),
         scrollable(list)
