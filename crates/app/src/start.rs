@@ -140,7 +140,7 @@ fn card<'a>(state: &'a StartState, card: &'a VolumeCard, index: usize) -> Elemen
                     ))
                     .style(theme::text_secondary),
             );
-            if cfg!(target_os = "macos") {
+            if cfg!(target_os = "macos") && state.fda != Some(true) {
                 details = details.push(
                     theme::SMALL
                         .text("macOS will ask for access to Desktop, Documents and Downloads")

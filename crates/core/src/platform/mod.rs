@@ -220,6 +220,12 @@ pub fn launched_from_terminal(own_bundle_id: Option<&str>) -> Option<String> {
     if !cfg!(target_os = "macos") {
         return None;
     }
+    // Started by launchd (Finder, the Dock, `open`): the app is responsible for itself, even
+    // when `open` from a terminal passed `TERM_PROGRAM` along.
+    #[cfg(unix)]
+    if std::os::unix::process::parent_id() == 1 {
+        return None;
+    }
     terminal_app_name(
         std::env::var("TERM_PROGRAM").ok().as_deref(),
         std::env::var("__CFBundleIdentifier").ok().as_deref(),
@@ -227,8 +233,8 @@ pub fn launched_from_terminal(own_bundle_id: Option<&str>) -> Option<String> {
     )
 }
 
-/// `TERM_PROGRAM` first; else `__CFBundleIdentifier` unless it is our own (LaunchServices
-/// sets it for every app, including dir-stat.app started from Finder).
+/// `None` when `__CFBundleIdentifier` is our own (LaunchServices started dir-stat.app, which
+/// is then responsible for itself); else `TERM_PROGRAM`, else `__CFBundleIdentifier`.
 pub fn terminal_app_name(
     term_program: Option<&str>,
     bundle_id: Option<&str>,
@@ -248,6 +254,9 @@ pub fn terminal_app_name(
             _ => return None,
         })
     };
+    if own_bundle_id.is_some() && bundle_id == own_bundle_id {
+        return None;
+    }
     if let Some(program) = term_program.filter(|p| !p.is_empty()) {
         return Some(known(program).map_or_else(|| program.to_string(), str::to_string));
     }
@@ -360,6 +369,8 @@ mod tests {
         // Started from Finder: LaunchServices sets our own bundle id.
         let own = Some("com.example.dir-stat");
         assert_eq!(terminal_app_name(None, own, own), None);
+        // `open dir-stat.app` from Ghostty: LaunchServices sets our id, TERM_PROGRAM leaks in.
+        assert_eq!(terminal_app_name(Some("ghostty"), own, own), None);
         assert_eq!(terminal_app_name(None, None, None), None);
     }
 

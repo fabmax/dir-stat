@@ -1655,6 +1655,15 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
   - Recent rows show the × all the time, muted, instead of on hover.
   - The app passes its own bundle id to `launched_from_terminal`, so a Finder launch doesn't name dir-stat as the terminal in the FDA bar.
   - Icon: a placeholder drawn by `scripts/make-icon.py` (no image library), turned into `AppIcon.icns` with `sips`/`iconutil`.
+- *Manual checks 2026-11-16* with the bundled app (`DIRSTAT_BUNDLE_FEATURES=screenshot`, started with `open --env DIRSTAT_SCRIPT=…` so macOS attributes access to `dir-stat.app`; the user answered the prompts). New script steps `idle:<max ms>`, `report:<label>` and `rescan-unfinished` for this.
+  - **Item 3** ✓: a fresh Home scan kept updating while a prompt held a folder ("Waiting on Music/Music…"); Stop took effect at once.
+  - **Item 7** ✓: Stop after 30 s left `~/dev` unfinished ("≥ 612 GB"); `rescan-unfinished` rescanned it and the Home scan became Complete (737 GB, 7.1M items).
+  - **Item 1** ✓: `/` without FDA in 38 s: 810 GB ≤ 842 GB container used, no double count of `/System/Volumes/Data`, Unaccounted 32.2 GB as the last row, FDA bar shown, "39% · less than a minute left" while scanning.
+  - **Item 2** ✓ with fixes: with FDA, privacy-blocked folders went from 222 to 51 and `Users` has no badge. The rest are SIP-protected system folders (`/Library/Caches/com.apple.*`, `/private/var/*`), which FDA can't open.
+  - **Fix:** the FDA bar, the popover hint and the "Open Privacy Settings" buttons showed even with FDA granted. `Results.has_fda` (checked again at each scan start) now suppresses them, and the Home card's prompt primer is hidden too.
+  - **Fix:** the FDA bar named the terminal ("give Ghostty Full Disk Access") when the bundle was started with `open` from a terminal, because `TERM_PROGRAM` is passed along. A launchd parent, or `__CFBundleIdentifier` equal to our own id, now means "not from a terminal".
+  - Recents survived a real restart (prefs file).
+  - Item 5 (iCloud "Optimize Storage") and item 10 (scrolling smoothness) depend on the user's answers.
 
 **M12 — Treemap (optional, SHOULD)**
 - UX §8 as summarized in §6.10, plus the tab bar with the "Cleanup 38 GB" label and ⌘2.

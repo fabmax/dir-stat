@@ -3,7 +3,6 @@
 
 use std::path::Path;
 
-use dirstat_core::platform;
 use dirstat_core::scan::{ErrorClass, ScanError};
 use dirstat_core::tree::{ErrorRecord, NodeId, Tree};
 use iced::widget::{
@@ -173,7 +172,7 @@ pub fn popover<'a>(results: &'a Results, home: Option<&Path>) -> Element<'a, Mes
     let privacy = records
         .iter()
         .any(|r| r.error.class == ErrorClass::PrivacyBlocked);
-    if privacy && platform::PRIVACY_SETTINGS_URL.is_some() {
+    if privacy && results.offer_privacy_settings() {
         body = body.push(rule::horizontal(1)).push(
             row![
                 theme::SMALL
@@ -254,7 +253,7 @@ pub fn root_unreadable_view<'a>(results: &'a Results, error: ScanError) -> Eleme
         _ => reason(error.class),
     };
     let mut buttons = row![].spacing(8);
-    if error.class == ErrorClass::PrivacyBlocked && platform::PRIVACY_SETTINGS_URL.is_some() {
+    if error.class == ErrorClass::PrivacyBlocked && results.offer_privacy_settings() {
         buttons = buttons.push(
             button(theme::BODY_STRONG.text("Open Privacy Settings"))
                 .padding([6, 14])

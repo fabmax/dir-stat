@@ -1061,3 +1061,26 @@ mod polish {
         assert_eq!(lines.line1, "Scanning r · 1 of 2 folders done");
     }
 }
+
+#[test]
+fn with_full_disk_access_privacy_errors_raise_no_bar() {
+    let builder = TreeBuilder::new(
+        "/r",
+        dir("r").child(dir("mail").error(dirstat_core::scan::ErrorClass::PrivacyBlocked)),
+    );
+    for has_fda in [false, true] {
+        let mut app = app();
+        let id = app.start_simulated("/r");
+        if let Screen::Results(r) = &mut app.screen {
+            r.has_fda = has_fda;
+        }
+        let _ = app.update(Message::Scan(id, Update::Started(builder.root_info())));
+        let _ = app.update(Message::Scan(id, batch(builder.listings())));
+        let r = results(&app);
+        assert_eq!(r.fda_bar, cfg!(target_os = "macos") && !has_fda);
+        assert_eq!(
+            r.offer_privacy_settings(),
+            cfg!(target_os = "macos") && !has_fda
+        );
+    }
+}

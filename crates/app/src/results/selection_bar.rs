@@ -3,7 +3,6 @@
 use std::path::Path;
 use std::time::Duration;
 
-use dirstat_core::platform;
 use dirstat_core::scan::{ErrorClass, Skip};
 use dirstat_core::tree::{FileFlags, NodeFlags, NodeState, Tree};
 use iced::widget::{Row, button, container, row, space, tooltip};
@@ -107,7 +106,7 @@ pub fn contents(results: &Results, key: RowKey, home: Option<&Path>, now: i64) -
             warning: false,
             path: "Unaccounted space".into(),
             details: super::columns::UNACCOUNTED_TIP.into(),
-            actions: if privacy && platform::PRIVACY_SETTINGS_URL.is_some() {
+            actions: if privacy && results.offer_privacy_settings() {
                 vec![Action::PrivacySettings]
             } else {
                 Vec::new()
@@ -150,7 +149,7 @@ pub fn contents(results: &Results, key: RowKey, home: Option<&Path>, now: i64) -
                 let class = node.error().map(|e| e.class).unwrap_or(ErrorClass::Other);
                 warning = true;
                 details.push(format!("Couldn't read: {}", super::errors::reason(class)));
-                if class == ErrorClass::PrivacyBlocked && platform::PRIVACY_SETTINGS_URL.is_some() {
+                if class == ErrorClass::PrivacyBlocked && results.offer_privacy_settings() {
                     actions.push(Action::PrivacySettings);
                 }
                 actions.push(Action::Rescan(rescan(results, id)));

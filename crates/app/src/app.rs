@@ -516,6 +516,11 @@ impl App {
         results.engine = Some(Arc::clone(&self.env.engine));
         results.view.set_height(tree_height(self.window_size));
         results.view.sort = self.prefs.sort;
+        // Granted since startup? The check lists one folder, so it is cheap to repeat.
+        if cfg!(target_os = "macos") && self.env.fda != Some(true) && !cfg!(test) {
+            self.env.fda = platform::full_disk_access();
+        }
+        results.has_fda = self.env.fda == Some(true);
         self.screen = Screen::Results(Box::new(results));
         Task::batch([
             task,
@@ -717,7 +722,11 @@ impl App {
         #[cfg(feature = "screenshot")]
         if let Some(script) = &mut self.script {
             use crate::script::Due;
-            match script.poll(now) {
+            let idle = match &self.screen {
+                Screen::Results(r) => !r.is_scanning() && !r.is_rescanning(),
+                Screen::Start(_) => true,
+            };
+            match script.poll(now, idle) {
                 Due::Nothing => {}
                 Due::Shot(target) => {
                     self.shot_target = Some(target);
@@ -749,6 +758,25 @@ impl App {
                         && let Some(id) = r.tree.find_path(&r.tree.root_path().join(&rel))
                     {
                         r.toggle(RowKey::Dir(id), now);
+                    }
+                }
+                Due::RescanUnfinished => {
+                    if let Screen::Results(r) = &mut self.screen
+                        && let Some(id) = r.tree.children(NodeId::ROOT).find(|&c| {
+                            let n = r.tree.node(c);
+                            !n.is_done()
+                                && !matches!(n.state(), dirstat_core::tree::NodeState::Skipped(_))
+                        })
+                    {
+                        r.view.selection = Some(RowKey::Dir(id));
+                        eprintln!("dir-stat: rescanning {}", r.tree.path_of(id).display());
+                        script.requeue(crate::script::Step::RescanUnfinished);
+                        return self.rescan();
+                    }
+                }
+                Due::Report(label) => {
+                    if let Screen::Results(r) = &self.screen {
+                        eprintln!("dir-stat: report {label}: {}", report(r));
                     }
                 }
                 Due::Done => return iced::exit(),
@@ -1131,6 +1159,45 @@ fn side_pane_width(window: f32) -> f32 {
 /// Hidden below 1000 px, and whenever the tree would get narrower than 440 px (UX §6.1).
 fn side_pane_fits(window: f32) -> bool {
     window >= 1000.0 && window - side_pane_width(window) >= 440.0
+}
+
+/// One line about the scan for `report:` script steps (manual checks).
+#[cfg(feature = "screenshot")]
+fn report(r: &Results) -> String {
+    use dirstat_core::scan::ErrorClass;
+    if !r.tree.is_started() {
+        return format!("phase {:?}, not started", r.phase);
+    }
+    let root = r.tree.node(NodeId::ROOT);
+    let total = root.total();
+    let privacy = r
+        .tree
+        .errors()
+        .iter()
+        .filter(|e| e.error.class == ErrorClass::PrivacyBlocked)
+        .count();
+    let unfinished = r
+        .tree
+        .children(NodeId::ROOT)
+        .filter(|&c| !r.tree.node(c).is_done())
+        .count();
+    format!(
+        "phase {:?}, root done {}, {} bytes ({}), {} items, {} unreadable folders ({} privacy-blocked), {} cloud items, unaccounted {:?}, container used {:?}, fda bar {}, unfinished root children {}",
+        r.phase,
+        root.is_done(),
+        total.alloc,
+        crate::format::size(total.alloc),
+        total.items,
+        r.tree.errors().len(),
+        privacy,
+        total.cloud_items,
+        r.view.unaccounted.map(crate::format::size),
+        r.estimate
+            .and_then(|e| e.container_used)
+            .map(crate::format::size),
+        r.fda_bar,
+        unfinished,
+    )
 }
 
 /// The bundle identifier `scripts/bundle-macos.sh` gives the app (design §12, question 6).

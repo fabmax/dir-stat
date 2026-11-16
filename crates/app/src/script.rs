@@ -26,6 +26,12 @@ pub enum Step {
     Click(String),
     /// Reveal and select a folder, by path relative to the scan root.
     Select(PathBuf),
+    /// Wait until no scan or rescan runs, at most this long.
+    Idle(Duration),
+    /// Rescan the scan root's unfinished subfolders one after another (manual check 7).
+    RescanUnfinished,
+    /// Print the state of the scan to stderr, with a label.
+    Report(String),
 }
 
 /// What the app should do on this tick.
@@ -38,6 +44,9 @@ pub enum Due {
     Expand(PathBuf),
     Click(String),
     Select(PathBuf),
+    /// Start a rescan of the next unfinished subfolder; `requeue` the step if there was one.
+    RescanUnfinished,
+    Report(String),
     Done,
 }
 
@@ -46,6 +55,7 @@ pub struct Script {
     steps: VecDeque<Step>,
     ready_at: Instant,
     awaiting_shot: bool,
+    idle_deadline: Option<Instant>,
 }
 
 impl Script {
@@ -54,6 +64,7 @@ impl Script {
             steps: steps.into(),
             ready_at: now,
             awaiting_shot: false,
+            idle_deadline: None,
         }
     }
 
@@ -73,11 +84,25 @@ impl Script {
         Ok((!steps.is_empty()).then(|| Self::new(steps, now)))
     }
 
-    pub fn poll(&mut self, now: Instant) -> Due {
+    /// `idle`: no scan or rescan is running.
+    pub fn poll(&mut self, now: Instant, idle: bool) -> Due {
         if self.awaiting_shot {
             return Due::Nothing;
         }
         while now >= self.ready_at {
+            match self.steps.front() {
+                Some(Step::Idle(max)) => {
+                    let deadline = *self.idle_deadline.get_or_insert(now + *max);
+                    if !idle && now < deadline {
+                        return Due::Nothing;
+                    }
+                    self.idle_deadline = None;
+                    self.steps.pop_front();
+                    continue;
+                }
+                Some(Step::RescanUnfinished) if !idle => return Due::Nothing,
+                _ => {}
+            }
             match self.steps.pop_front() {
                 None => return Due::Done,
                 Some(Step::Wait(duration)) => self.ready_at = now + duration,
@@ -90,9 +115,17 @@ impl Script {
                 Some(Step::Expand(rel)) => return Due::Expand(rel),
                 Some(Step::Click(name)) => return Due::Click(name),
                 Some(Step::Select(rel)) => return Due::Select(rel),
+                Some(Step::Idle(_)) => unreachable!("handled above"),
+                Some(Step::RescanUnfinished) => return Due::RescanUnfinished,
+                Some(Step::Report(label)) => return Due::Report(label),
             }
         }
         Due::Nothing
+    }
+
+    /// Runs a step again next (a rescan started; more may follow).
+    pub fn requeue(&mut self, step: Step) {
+        self.steps.push_front(step);
     }
 
     /// The pending screenshot was written; the next step starts counting from `now`.
@@ -113,11 +146,14 @@ pub fn parse(spec: &str) -> Result<Vec<Step>, String> {
             Some(("expand", rel)) if !rel.is_empty() => Ok(Step::Expand(rel.into())),
             Some(("click", name)) if !name.is_empty() => Ok(Step::Click(name.into())),
             Some(("select", rel)) if !rel.is_empty() => Ok(Step::Select(rel.into())),
+            Some(("idle", ms)) => parse_ms(ms).map(Step::Idle),
+            Some(("report", label)) => Ok(Step::Report(label.into())),
+            None if step == "rescan-unfinished" => Ok(Step::RescanUnfinished),
             Some(("key", name)) => KeyAction::from_name(name)
                 .map(Step::Key)
                 .ok_or_else(|| format!("unknown key action {name:?}")),
             _ => Err(format!(
-                "unsupported script step {step:?} (supported: wait:<ms>, shot:<file.png>, path:<dir>, key:<action>, expand:<rel>, click:<target>, select:<rel>)"
+                "unsupported script step {step:?} (supported: wait:<ms>, shot:<file.png>, path:<dir>, key:<action>, expand:<rel>, click:<target>, select:<rel>, idle:<max ms>, report:<label>, rescan-unfinished)"
             )),
         })
         .collect()
@@ -154,6 +190,35 @@ pub fn save_png(
 mod tests {
     use super::*;
 
+    impl Script {
+        fn poll_t(&mut self, now: Instant) -> Due {
+            self.poll(now, true)
+        }
+    }
+
+    #[test]
+    fn idle_waits_for_the_scan_or_the_deadline() {
+        let start = Instant::now();
+        let steps = parse("idle:1000;report:x;rescan-unfinished").unwrap();
+        let mut script = Script::new(steps, start);
+        assert_eq!(script.poll(start, false), Due::Nothing);
+        assert_eq!(script.poll(start + 500 * MS, false), Due::Nothing);
+        assert_eq!(script.poll(start + 600 * MS, true), Due::Report("x".into()));
+        assert_eq!(
+            script.poll(start + 600 * MS, false),
+            Due::Nothing,
+            "held while busy"
+        );
+        assert_eq!(script.poll(start + 700 * MS, true), Due::RescanUnfinished);
+        script.requeue(Step::RescanUnfinished);
+        assert_eq!(script.poll(start + 800 * MS, true), Due::RescanUnfinished);
+        assert_eq!(script.poll(start + 900 * MS, true), Due::Done);
+
+        let mut script = Script::new(parse("idle:1000").unwrap(), start);
+        assert_eq!(script.poll(start, false), Due::Nothing);
+        assert_eq!(script.poll(start + 1000 * MS, false), Due::Done, "deadline");
+    }
+
     const MS: Duration = Duration::from_millis(1);
 
     #[test]
@@ -189,14 +254,14 @@ mod tests {
         ];
         let mut script = Script::new(steps, start);
 
-        assert_eq!(script.poll(start), Due::Nothing);
-        assert_eq!(script.poll(start + 99 * MS), Due::Nothing);
-        assert_eq!(script.poll(start + 100 * MS), Due::Shot("a.png".into()));
+        assert_eq!(script.poll_t(start), Due::Nothing);
+        assert_eq!(script.poll_t(start + 99 * MS), Due::Nothing);
+        assert_eq!(script.poll_t(start + 100 * MS), Due::Shot("a.png".into()));
         // Nothing happens until the screenshot is saved.
-        assert_eq!(script.poll(start + 500 * MS), Due::Nothing);
+        assert_eq!(script.poll_t(start + 500 * MS), Due::Nothing);
         script.shot_saved(start + 600 * MS);
-        assert_eq!(script.poll(start + 600 * MS), Due::Shot("b.png".into()));
+        assert_eq!(script.poll_t(start + 600 * MS), Due::Shot("b.png".into()));
         script.shot_saved(start + 700 * MS);
-        assert_eq!(script.poll(start + 700 * MS), Due::Done);
+        assert_eq!(script.poll_t(start + 700 * MS), Due::Done);
     }
 }

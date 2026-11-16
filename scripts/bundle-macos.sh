@@ -4,6 +4,7 @@
 #
 #   scripts/bundle-macos.sh                      # ad-hoc signature
 #   DIRSTAT_SIGN_IDENTITY="Developer ID Application: …" scripts/bundle-macos.sh
+#   DIRSTAT_BUNDLE_FEATURES=screenshot scripts/bundle-macos.sh   # with the check harness
 #
 # Privacy grants (Full Disk Access, Desktop/Documents/Downloads) are tied to the signature.
 # An ad-hoc signature changes with every build, so macOS forgets the grants after a rebuild;
@@ -15,7 +16,10 @@ BUNDLE_ID="com.example.dir-stat" # keep in sync with app::BUNDLE_ID
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
 APP="target/release/dir-stat.app"
 
-cargo build --release -p dir-stat
+# DIRSTAT_BUNDLE_FEATURES=screenshot adds the visual-check harness (manual checks driven
+# by DIRSTAT_SCRIPT); release bundles leave it out.
+FEATURES="${DIRSTAT_BUNDLE_FEATURES:-}"
+cargo build --release -p dir-stat ${FEATURES:+--features "$FEATURES"}
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"

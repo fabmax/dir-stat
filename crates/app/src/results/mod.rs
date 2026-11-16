@@ -80,6 +80,9 @@ pub struct Results {
     cleanup_seen: (u64, NodeId),
     /// A subtree rescan in flight (design §4.6). It never changes `phase`.
     pub rescan: Option<Rescan>,
+    /// macOS: dir-stat has Full Disk Access (checked when the scan starts). What is still
+    /// blocked then is guarded by System Integrity Protection: no bar, no settings button.
+    pub has_fda: bool,
 }
 
 /// A rescan accumulates into its own tree; the main tree keeps the old numbers until the
@@ -161,6 +164,7 @@ impl Results {
             cleanup_dirty: true,
             cleanup_seen: (0, NodeId::ROOT),
             rescan: None,
+            has_fda: false,
             tree: Tree::opening(root),
             phase: Phase::Opening,
             active: Some(active),
@@ -201,7 +205,7 @@ impl Results {
                 for listing in batch.listings {
                     let id = listing.id;
                     let effect = self.tree.apply(listing);
-                    if effect.first_privacy_error && cfg!(target_os = "macos") {
+                    if effect.first_privacy_error && cfg!(target_os = "macos") && !self.has_fda {
                         self.fda_bar = true;
                     }
                     self.view.on_listing(&self.tree, id, effect);
@@ -284,6 +288,11 @@ impl Results {
         let scanned = self.tree.node(NodeId::ROOT).total().alloc;
         let gap = used.checked_sub(scanned)?;
         (gap >= 1_000_000_000 && gap.saturating_mul(100) >= used).then_some(gap)
+    }
+
+    /// Whether "Open Privacy Settings" can help with privacy-blocked folders.
+    pub fn offer_privacy_settings(&self) -> bool {
+        dirstat_core::platform::PRIVACY_SETTINGS_URL.is_some() && !self.has_fda
     }
 
     pub fn is_rescanning(&self) -> bool {
