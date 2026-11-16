@@ -635,3 +635,67 @@ pub fn dialog_button(
         ..button::Style::default()
     }
 }
+
+/// Tree rows: selected (focused or not), and the reveal flash.
+pub fn tree_row_state(
+    theme: &Theme,
+    selected: bool,
+    focused: bool,
+    flashing: bool,
+) -> container::Style {
+    let tokens = tokens(theme);
+    let background = if flashing {
+        Some(tokens.accent.scale_alpha(0.35))
+    } else if selected && focused {
+        Some(tokens.bg_selected)
+    } else if selected {
+        Some(tokens.bg_selected_unfocused)
+    } else {
+        None
+    };
+    container::Style {
+        background: background.map(Into::into),
+        text_color: Some(tokens.text_primary),
+        ..container::Style::default()
+    }
+}
+
+/// Cleanup pills: status color at 14% behind 11 px text (UX §6.2).
+pub fn pill(theme: &Theme, safe: bool) -> container::Style {
+    let tokens = tokens(theme);
+    container::Style {
+        background: Some(
+            if safe {
+                tokens.chip_good
+            } else {
+                tokens.chip_warning
+            }
+            .into(),
+        ),
+        border: Border {
+            radius: 9.0.into(),
+            ..Border::default()
+        },
+        ..container::Style::default()
+    }
+}
+
+/// The 6 px dot in a pill: good for Safe, warning for Review first.
+pub fn status_dot(theme: &Theme, safe: bool) -> container::Style {
+    let tokens = tokens(theme);
+    container::Style {
+        background: Some(
+            if safe {
+                tokens.status_good
+            } else {
+                tokens.status_warning
+            }
+            .into(),
+        ),
+        border: Border {
+            radius: 3.0.into(),
+            ..Border::default()
+        },
+        ..container::Style::default()
+    }
+}

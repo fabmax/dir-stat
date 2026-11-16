@@ -31,11 +31,11 @@ impl Candidates {
         }
     }
 
-    /// Picks up candidates that appeared since the last call.
-    pub fn collect(&mut self, tree: &Tree) {
+    /// Picks up candidates that appeared since the last call; true when there were any.
+    pub fn collect(&mut self, tree: &Tree) -> bool {
         let new = &tree.candidates()[self.seen.min(tree.candidates().len())..];
         if new.is_empty() {
-            return;
+            return false;
         }
         let (outside, jobs) = git::plan_jobs(tree, new.iter().copied());
         self.seen = tree.candidates().len();
@@ -46,6 +46,7 @@ impl Candidates {
                 .or_default()
                 .extend(job.items);
         }
+        true
     }
 
     /// The next job: the work tree with the most waiting candidates. At most one runs.

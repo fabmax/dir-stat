@@ -262,6 +262,11 @@ fn row_view<'a>(
         None => name,
     };
     name_cell = name_cell.push(container(name).clip(true));
+    if let Some((section, label)) = pill(results, r.key) {
+        name_cell = name_cell
+            .push(space().width(6))
+            .push(pill_view(section, label));
+    }
     if let Some(badge) = cells.badge {
         name_cell = name_cell.push(space().width(6)).push(badge_view(badge));
     }
@@ -349,10 +354,16 @@ fn row_view<'a>(
     let line = line.push(space().width(16));
 
     let selected = results.view.selection == Some(r.key);
+    let focused = results.focus == super::Pane::Tree;
+    // Revealed from the cleanup pane: two flashes over 600 ms.
+    let flashing = results.view.flash.is_some_and(|(key, at)| {
+        let ms = now.saturating_duration_since(at).as_millis();
+        key == r.key && ms < super::FLASH.as_millis() && (ms / 150).is_multiple_of(2)
+    });
     let base = container(line)
         .width(Fill)
         .height(ROW_H)
-        .style(move |t| theme::tree_row(t, selected));
+        .style(move |t| theme::tree_row_state(t, selected, focused, flashing));
     let highlight = container(space())
         .width(Fill)
         .height(Fill)
@@ -716,6 +727,51 @@ fn base_cells(
         }
     }
     cells
+}
+
+/// The cleanup pill of a candidate row, from `display_section` (no pill while git is pending
+/// or for tracked folders).
+fn pill(results: &Results, key: RowKey) -> Option<(dirstat_core::catalog::Section, &'static str)> {
+    use dirstat_core::catalog::{Display, Verdict, display_section};
+    use dirstat_core::scan::FileMatch;
+    use dirstat_core::tree::CandidateRef;
+    let engine = results.engine.as_ref()?;
+    let tree = &results.tree;
+    let (rule, candidate) = match key {
+        RowKey::Dir(id) => match tree.node(id).verdict() {
+            Verdict::Target { rule, .. } => (rule, CandidateRef::Dir(id)),
+            _ => return None,
+        },
+        RowKey::File(dir, index) => match tree.node(dir).large_files().get(index as usize)?.matched
+        {
+            Some(FileMatch::Target(rule)) => (rule, CandidateRef::File(dir, index)),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let rule = engine.rule(rule);
+    match display_section(rule.risk()?, results.candidates.state(candidate)) {
+        Display::Shown { section, .. } => Some((section, rule.category.pill())),
+        _ => None,
+    }
+}
+
+fn pill_view<'a>(
+    section: dirstat_core::catalog::Section,
+    label: &'static str,
+) -> Element<'a, Message> {
+    let safe = section == dirstat_core::catalog::Section::SafeToDelete;
+    container(
+        row![
+            container(space().width(6).height(6)).style(move |t| theme::status_dot(t, safe)),
+            theme::CAPTION.text(label).style(theme::text_secondary),
+        ]
+        .spacing(5)
+        .align_y(Center),
+    )
+    .padding([1, 8])
+    .style(move |t| theme::pill(t, safe))
+    .into()
 }
 
 fn tone_style(theme: &iced::Theme, tone: Tone) -> iced::widget::text::Style {

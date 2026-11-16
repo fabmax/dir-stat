@@ -501,3 +501,192 @@ mod trash_flow {
         );
     }
 }
+
+mod cleanup_flow {
+    use super::*;
+    use crate::keys::KeyAction;
+    use crate::results::Pane;
+    use crate::results::cleanup_pane::Line;
+    use crate::results::rows::RowKey;
+    use crate::results::trash::Modal;
+    use dirstat_core::catalog::{Section, Verdict};
+    use dirstat_core::tree::CandidateRef;
+
+    fn target(id: &str) -> Verdict {
+        Verdict::Target {
+            rule: engine().rule_by_id(id).unwrap(),
+            by_default: false,
+        }
+    }
+
+    /// Two Safe cargo targets (500 MB, 300 MB), one Low node_modules (40 MB), a tool-only
+    /// Trash folder (20 MB), and a deep Safe target to reveal.
+    fn scanned(app: &mut App) {
+        let proj = |name: &str, mb: u64| {
+            dir(name).child(
+                dir("target")
+                    .verdict(target("cargo-target"))
+                    .small_files(1, mb * 1_000_000),
+            )
+        };
+        let builder = TreeBuilder::new(
+            "/r",
+            dir("r")
+                .child(proj("a", 500))
+                .child(proj("b", 300))
+                .child(
+                    dir("web").child(
+                        dir("node_modules")
+                            .verdict(target("node-modules"))
+                            .small_files(1, 40_000_000),
+                    ),
+                )
+                .child(
+                    dir(".Trash")
+                        .verdict(target("mac-trash"))
+                        .small_files(1, 20_000_000),
+                ),
+        );
+        completed(app, &builder);
+    }
+
+    fn group(app: &App, section: Section, rule: &str) -> crate::results::cleanup::Group {
+        let rule = engine().rule_by_id(rule).unwrap();
+        results(app)
+            .cleanup
+            .model
+            .sections
+            .iter()
+            .find(|s| s.section == section)
+            .and_then(|s| s.groups.iter().find(|g| g.rule == rule))
+            .cloned()
+            .unwrap_or_else(|| panic!("{:?}", results(app).cleanup.model))
+    }
+
+    #[test]
+    fn sections_and_totals_after_the_scan() {
+        let mut app = app();
+        scanned(&mut app);
+        let m = &results(&app).cleanup.model;
+        assert!(!m.scanning);
+        assert!(
+            (800_000_000..800_100_000).contains(&m.safe_total),
+            "{}",
+            m.safe_total
+        );
+        assert!(
+            (60_000_000..60_100_000).contains(&m.review_total),
+            "{}",
+            m.review_total
+        );
+        let cargo = group(&app, Section::SafeToDelete, "cargo-target");
+        assert_eq!(cargo.items.len(), 2);
+        let modules = group(&app, Section::ReviewFirst, "node-modules");
+        assert!(modules.redownloadable);
+        assert!(
+            group(&app, Section::ReviewFirst, "mac-trash")
+                .command
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn trash_from_the_pane_toasts_for_groups_and_tool_only_rules() {
+        let mut app = app();
+        scanned(&mut app);
+        let cargo = group(&app, Section::SafeToDelete, "cargo-target").key();
+        let trash = group(&app, Section::ReviewFirst, "mac-trash").key();
+
+        // A multi-match group: no dialog, a toast.
+        let _ = app.update(Message::Key(KeyAction::PaneCleanup));
+        assert_eq!(results(&app).focus, Pane::Cleanup);
+        if let Screen::Results(r) = &mut app.screen {
+            r.cleanup.cursor = Some(Line::Group(cargo));
+        }
+        let _ = app.update(Message::Key(KeyAction::Trash));
+        assert!(app.modal().is_none());
+        assert_eq!(
+            app.toast_text(),
+            Some("Select one folder in the group to move it to the Trash.")
+        );
+
+        // A tool-only rule: the command instead.
+        if let Screen::Results(r) = &mut app.screen {
+            r.cleanup.cursor = Some(Line::Group(trash));
+        }
+        let _ = app.update(Message::Key(KeyAction::Trash));
+        assert!(app.modal().is_none());
+        assert!(
+            app.toast_text()
+                .is_some_and(|t| t.starts_with("Use the command instead: ")),
+            "{:?}",
+            app.toast_text()
+        );
+
+        // One item of the group: the normal dialog.
+        let _ = app.update(Message::CleanupGroupPressed(cargo));
+        let item = results(&app)
+            .cleanup
+            .lines()
+            .into_iter()
+            .find(|l| matches!(l, Line::Item(..)));
+        if let Screen::Results(r) = &mut app.screen {
+            r.cleanup.cursor = item;
+        }
+        let _ = app.update(Message::Key(KeyAction::Trash));
+        assert!(
+            matches!(app.modal(), Some(Modal::Confirm { .. })),
+            "{:?}",
+            app.modal()
+        );
+    }
+
+    #[test]
+    fn clicking_an_item_reveals_selects_and_flashes_it() {
+        let mut app = app();
+        scanned(&mut app);
+        let cargo = group(&app, Section::SafeToDelete, "cargo-target");
+        let candidate = cargo.items[1].candidate;
+        let CandidateRef::Dir(id) = candidate else {
+            panic!()
+        };
+        let _ = app.update(Message::CleanupItemPressed(cargo.key(), candidate));
+        let r = results(&app);
+        assert_eq!(r.view.selection, Some(RowKey::Dir(id)));
+        assert!(
+            r.view.rows.iter().any(|row| row.key == RowKey::Dir(id)),
+            "parent expanded"
+        );
+        assert!(r.view.flash.is_some_and(|(k, _)| k == RowKey::Dir(id)));
+        assert_eq!(r.focus, Pane::Cleanup, "a click keeps the pane focus");
+
+        // Return on a focused item reveals it and hands focus to the tree.
+        let _ = app.update(Message::Key(KeyAction::Enter));
+        assert_eq!(results(&app).focus, Pane::Tree);
+    }
+
+    #[test]
+    fn a_single_match_group_reveals_and_tab_switches_panes() {
+        let mut app = app();
+        app.window_size = iced::Size::new(1400.0, 900.0);
+        scanned(&mut app);
+        let modules = group(&app, Section::ReviewFirst, "node-modules");
+        let _ = app.update(Message::CleanupGroupPressed(modules.key()));
+        let CandidateRef::Dir(id) = modules.items[0].candidate else {
+            panic!()
+        };
+        assert_eq!(results(&app).view.selection, Some(RowKey::Dir(id)));
+        assert!(!results(&app).cleanup.expanded.contains(&modules.key()));
+
+        let _ = app.update(Message::Key(KeyAction::Tab));
+        assert_eq!(results(&app).focus, Pane::Tree);
+        let _ = app.update(Message::Key(KeyAction::Tab));
+        assert_eq!(results(&app).focus, Pane::Cleanup);
+        let _ = app.update(Message::Key(KeyAction::TogglePane));
+        assert_eq!(
+            results(&app).focus,
+            Pane::Tree,
+            "hiding the pane returns focus"
+        );
+    }
+}

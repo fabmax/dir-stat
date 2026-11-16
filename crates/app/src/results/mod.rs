@@ -2,6 +2,8 @@
 
 pub mod activity;
 pub mod candidates;
+pub mod cleanup;
+pub mod cleanup_pane;
 pub mod columns;
 pub mod errors;
 pub mod nav;
@@ -68,7 +70,24 @@ pub struct Results {
     pub tree_gen: u32,
     pub candidates: candidates::Candidates,
     pub trash_jobs: HashMap<TrashJobId, PendingTrash>,
+    /// Set by the app when the scan starts; the cleanup pane and the pills need the catalog.
+    pub engine: Option<std::sync::Arc<dirstat_core::catalog::Engine>>,
+    pub cleanup: cleanup_pane::CleanupPane,
+    pub focus: Pane,
+    cleanup_dirty: bool,
+    cleanup_seen: (u64, NodeId),
 }
+
+/// Which pane has the keyboard.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Pane {
+    #[default]
+    Tree,
+    Cleanup,
+}
+
+/// How long a revealed row flashes.
+pub const FLASH: std::time::Duration = std::time::Duration::from_millis(600);
 
 /// A trash job in flight: what to account for when it finishes.
 #[derive(Clone, Debug)]
@@ -117,6 +136,11 @@ impl Results {
             tree_gen: active.id.0 as u32,
             candidates: candidates::Candidates::default(),
             trash_jobs: HashMap::new(),
+            engine: None,
+            cleanup: cleanup_pane::CleanupPane::default(),
+            focus: Pane::Tree,
+            cleanup_dirty: true,
+            cleanup_seen: (0, NodeId::ROOT),
             tree: Tree::opening(root),
             phase: Phase::Opening,
             active: Some(active),
@@ -177,6 +201,8 @@ impl Results {
                     // Completion: one exact re-sort, anchored to the selection.
                     if self.tree.is_started() {
                         self.scroll_to = self.view.settle(&self.tree, now);
+                        self.candidates.collect(&self.tree);
+                        self.cleanup_dirty = true;
                     }
                 } else {
                     self.draining = None;
@@ -219,7 +245,11 @@ impl Results {
         if self.active.is_some() {
             self.activity.refresh_path(&self.tree, now);
         }
-        self.candidates.collect(&self.tree);
+        // While scanning the pane re-ranks with the tree's re-orders; afterwards (late
+        // listings of a stopped scan) a new candidate shows at once.
+        if self.candidates.collect(&self.tree) && self.active.is_none() {
+            self.cleanup_dirty = true;
+        }
         if let Some(offset) = self
             .view
             .tick(&self.tree, now, self.active.is_some(), button_held)
@@ -444,6 +474,17 @@ impl Results {
         }
         // The struck-through row leaves at the next calm re-order, also after the scan.
         self.view.reorder.post_trash = true;
+        let candidate = match pending.target {
+            trash::TrashTarget::Dir(dir) => Some(dirstat_core::tree::CandidateRef::Dir(dir)),
+            trash::TrashTarget::File(dir, index) => {
+                Some(dirstat_core::tree::CandidateRef::File(dir, index))
+            }
+            trash::TrashTarget::SmallFile(..) => None,
+        };
+        if let Some(candidate) = candidate {
+            self.cleanup.keep_trashed.insert(candidate);
+        }
+        self.cleanup_dirty = true;
         if let Some(trash_node) = home.and_then(|h| self.tree.find_path(&h.join(".Trash"))) {
             self.tree.set_flag(trash_node, NodeFlags::OUTDATED, true);
         }
@@ -466,10 +507,85 @@ impl Results {
 
     /// Ticks are needed while git or trash work is in flight, or a re-order is due.
     pub fn busy(&self) -> bool {
-        self.is_scanning()
+        let flashing = self.view.flash.is_some_and(|(_, at)| at.elapsed() < FLASH);
+        flashing
+            || self.is_scanning()
             || self.candidates.busy()
             || !self.trash_jobs.is_empty()
             || self.view.reorder.post_trash
+    }
+
+    pub fn git_checked(
+        &mut self,
+        statuses: Vec<(
+            dirstat_core::tree::CandidateRef,
+            dirstat_core::git::GitStatus,
+        )>,
+    ) {
+        self.candidates.finished(statuses);
+        self.cleanup_dirty = true;
+    }
+
+    /// Rebuilds the cleanup model when something it shows changed: a calm re-order (the
+    /// trashed rows leave then), a new zoom root, git results, trash, completion.
+    pub fn refresh_cleanup(&mut self, home: Option<&std::path::Path>, now_unix: i64) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let seen = (self.view.reorders, self.view.zoom);
+        if seen.0 != self.cleanup_seen.0 {
+            self.cleanup.keep_trashed.clear();
+        }
+        if !self.cleanup_dirty && seen == self.cleanup_seen {
+            return;
+        }
+        self.cleanup_dirty = false;
+        self.cleanup_seen = seen;
+        let candidates = &self.candidates;
+        self.cleanup.model = cleanup::build(
+            &self.tree,
+            &engine,
+            |c| candidates.state(c),
+            self.view.zoom,
+            home,
+            now_unix,
+            self.is_scanning(),
+            &self.cleanup.keep_trashed,
+        );
+        if let Some(cursor) = self.cleanup.cursor
+            && !self.cleanup.lines().contains(&cursor)
+        {
+            self.cleanup.cursor = None;
+        }
+    }
+
+    /// A cleanup row was clicked or activated: show it in the tree, centered, flashing.
+    pub fn reveal_candidate(&mut self, candidate: dirstat_core::tree::CandidateRef, now: Instant) {
+        let dir = candidate.dir();
+        let target = match candidate {
+            dirstat_core::tree::CandidateRef::Dir(id) => id,
+            dirstat_core::tree::CandidateRef::File(..) => dir,
+        };
+        if self.tree.is_started() {
+            self.scroll_to = self
+                .view
+                .reveal_node(&mut self.tree, target, now)
+                .or(self.scroll_to);
+        }
+        let key = match candidate {
+            dirstat_core::tree::CandidateRef::File(dir, index)
+                if self
+                    .view
+                    .rows
+                    .iter()
+                    .any(|r| r.key == RowKey::File(dir, index)) =>
+            {
+                RowKey::File(dir, index)
+            }
+            _ => RowKey::Dir(target),
+        };
+        self.view.selection = Some(key);
+        self.view.flash = Some((key, now));
     }
 
     /// The path a row stands for (an aggregate or placeholder: its folder).

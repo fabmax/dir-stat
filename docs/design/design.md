@@ -1617,6 +1617,12 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
 - ⌘⌫ on a focused child or single-match group → §7 flow; multi-match group and ToolOnly → toasts (§7.1).
 - Cleanup pills in tree rows (from `display_section`).
 - *Accept:* the `cleanup` unit tests; on `~/dev`, Cargo targets appear under "Safe to delete" and node_modules under "Review first" with the "Re-downloadable" tag; the two tracked folders from CAT §5.1 appear nowhere and have no pill; with no git found, in-repo candidates appear under Review first with "Couldn't check with git"; the stat block and header count only Safe; clicking a child reveals it centered in the tree; ⌘⌫ on a ToolOnly item shows the command toast.
+- *Done 2026-11-16.* `~/dev` (245 GB, complete): Safe to delete 128 GB (Cargo target · 9 = 124 GB, Gradle build · 45, Gradle project .gradle · 21, Zig, Electron cache, Kotlin, 2 smaller), Review first 4.85 GB (node_modules (pnpm) · 5 and node_modules · 316 tagged Re-downloadable, Python virtualenv · 2, 2 smaller); a click on a child reveals it in the tree with the "Build" pill. App-level tests cover the totals, the group and ToolOnly toasts, the reveal, and pane focus. Notes:
+  - The stat block (and the scanning/incomplete lines) stays put above the scrolling list. The list rows have fixed heights (`cleanup_pane::layout`), so ↑/↓/Page keys scroll the cursor into view without a layout pass.
+  - A click keeps the focus in the pane; Return on an item reveals it and hands the focus to the tree. Tab/⇧Tab switch panes only while the pane is shown. ⌘0 toggles the pane, ⌘1 shows and focuses it. The pane is hidden below 1000 px or when the tree would get narrower than 440 px (width clamp(320, 34%, 480)).
+  - The pane rebuilds when the tree re-orders, when git statuses arrive, after a trash result, on completion and on zoom; candidates are collected at completion too, so the final model never misses ones from the last batch.
+  - The header and stat totals carry "≥" while scanning.
+  - The reveal flash (600 ms) isn't checked by screenshot, only by the app-level test.
 
 **M10 — Rescan**
 - Rescan of the selected folder / zoom root (⌘R) with the old numbers kept visible and the `RESCANNING` state; the eligibility rules of §4.6.

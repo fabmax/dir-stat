@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use dirstat_core::catalog::{Engine, Resolver};
+use dirstat_core::catalog::{Engine, Resolver, Section};
 use dirstat_core::git::{self, GitBinary, GitStatus};
 use dirstat_core::platform::{self, Mount};
 use dirstat_core::safety::Guards;
@@ -22,13 +22,15 @@ use iced::{
 
 use crate::keys::{self, KeyAction};
 use crate::prefs::{JsonPrefs, Prefs, PrefsStore};
+use crate::results::cleanup::GroupKey;
+use crate::results::cleanup_pane::{self, Line};
 use crate::results::order::Column;
 use crate::results::rows::RowKey;
 use crate::results::scan_task::{self, ScanIdGen};
 use crate::results::trash::{self, Focus, Modal, TrashTarget};
 use crate::results::tree_view::Effect;
 use crate::results::{
-    Results, ScanOutcome, StopOutcome, activity, columns, errors, nav, selection_bar,
+    Pane, Results, ScanOutcome, StopOutcome, activity, columns, errors, nav, selection_bar,
 };
 use crate::start::{self, StartState};
 use crate::{Cli, theme};
@@ -61,11 +63,13 @@ pub struct App {
     env: Env,
     prefs: Prefs,
     pub screen: Screen,
-    window_size: Size,
+    pub(crate) window_size: Size,
     drag_hover: bool,
     /// From any mouse event, also ones rows capture (calm sorting waits while held).
     left_button_held: bool,
     pointer_in_tree: bool,
+    /// The cleanup pane is wanted (⌘0 toggles); it also needs room (UX §6.1).
+    side_pane: bool,
     toast: Option<Toast>,
     /// "Not Now" hides the Full Disk Access bar for the rest of the session.
     fda_dismissed: bool,
@@ -113,6 +117,14 @@ pub enum Message {
     RevealSelection,
     CopySelection,
     ScanSelection,
+    // cleanup pane
+    FocusCleanup,
+    CleanupGroupPressed(GroupKey),
+    CleanupItemPressed(GroupKey, CandidateRef),
+    CleanupMore(GroupKey),
+    CleanupSmaller(Section),
+    CleanupScrolled(scrollable::Viewport),
+    CopyCommand(String),
     // trash
     RequestTrash,
     ConfirmTrash,
@@ -181,6 +193,7 @@ impl App {
             drag_hover: false,
             left_button_held: false,
             pointer_in_tree: false,
+            side_pane: true,
             toast: None,
             fda_dismissed: false,
             modal: None,
@@ -219,6 +232,9 @@ impl App {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         let task = self.handle(message);
+        if let Screen::Results(results) = &mut self.screen {
+            results.refresh_cleanup(self.env.home.as_deref(), unix_now());
+        }
         // Rows that moved under the anchor scroll back in the same update: no flicker.
         if let Screen::Results(results) = &mut self.screen
             && let Some(y) = results.scroll_to.take()
@@ -350,6 +366,50 @@ impl App {
             }
             Message::DismissFdaBar => self.fda_dismissed = true,
             Message::RequestTrash => self.request_trash(),
+            Message::FocusCleanup => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.focus = Pane::Cleanup;
+                }
+            }
+            Message::CleanupGroupPressed(key) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.focus = Pane::Cleanup;
+                    r.cleanup.cursor = Some(Line::Group(key));
+                    r.view.reorder.activity(Instant::now());
+                    match r.cleanup.candidate_of(Line::Group(key)) {
+                        Some(candidate) => r.reveal_candidate(candidate, Instant::now()),
+                        None => r.cleanup.toggle(key),
+                    }
+                }
+            }
+            Message::CleanupItemPressed(key, candidate) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.focus = Pane::Cleanup;
+                    r.cleanup.cursor = Some(Line::Item(key, candidate));
+                    r.view.reorder.activity(Instant::now());
+                    r.reveal_candidate(candidate, Instant::now());
+                }
+            }
+            Message::CleanupMore(key) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.cleanup.show_more(key);
+                }
+            }
+            Message::CleanupSmaller(section) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.cleanup.show_small.insert(section);
+                }
+            }
+            Message::CleanupScrolled(viewport) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.cleanup.scroll_y = viewport.absolute_offset().y;
+                    r.cleanup.viewport_h = viewport.bounds().height;
+                }
+            }
+            Message::CopyCommand(command) => {
+                self.toast = Some(Toast::info("Copied the command"));
+                return iced::clipboard::write(command);
+            }
             Message::ConfirmTrash => return self.confirm_trash(),
             Message::CancelModal => self.modal = None,
             Message::TrashFinished(id, generation, outcomes) => {
@@ -373,7 +433,7 @@ impl App {
                 if let Screen::Results(r) = &mut self.screen
                     && r.scan_id == id
                 {
-                    r.candidates.finished(statuses);
+                    r.git_checked(statuses);
                 }
             }
             Message::SortBy(column) => {
@@ -439,6 +499,7 @@ impl App {
         );
         // Replacing the screen drops a previous scan, which cancels it.
         let mut results = Results::new(path, title, estimate, active);
+        results.engine = Some(Arc::clone(&self.env.engine));
         results.view.set_height(tree_height(self.window_size));
         self.screen = Screen::Results(Box::new(results));
         Task::batch([
@@ -540,6 +601,28 @@ impl App {
             (Screen::Results(_), KeyAction::Escape | KeyAction::Stop) => self.stop(),
             (Screen::Results(_), KeyAction::NewScan) => self.show_start(None),
             (Screen::Results(_), KeyAction::RescanAll) => return self.update(Message::RescanAll),
+            (Screen::Results(r), KeyAction::TogglePane) => {
+                self.side_pane = !self.side_pane;
+                if !self.side_pane {
+                    r.focus = Pane::Tree;
+                }
+            }
+            (Screen::Results(r), KeyAction::PaneCleanup) => {
+                self.side_pane = true;
+                r.focus = Pane::Cleanup;
+            }
+            (Screen::Results(r), KeyAction::Tab | KeyAction::ShiftTab) => {
+                if side_pane_fits(self.window_size.width) && self.side_pane {
+                    r.focus = if r.focus == Pane::Tree {
+                        Pane::Cleanup
+                    } else {
+                        Pane::Tree
+                    };
+                }
+            }
+            (Screen::Results(r), action) if r.focus == Pane::Cleanup => {
+                return self.cleanup_key(action);
+            }
             (Screen::Results(_), KeyAction::Trash) => self.request_trash(),
             (Screen::Results(r), action) => {
                 let effect = r.key(action, Instant::now());
@@ -695,6 +778,95 @@ impl App {
 
     /// Plans the selected row and opens the confirmation (or refusal) dialog. Nothing moves
     /// before ConfirmTrash.
+    /// Keys while the cleanup pane has focus (UX §7).
+    fn cleanup_key(&mut self, action: KeyAction) -> Task<Message> {
+        let Screen::Results(r) = &mut self.screen else {
+            return Task::none();
+        };
+        r.view.reorder.activity(Instant::now());
+        match action {
+            KeyAction::Down => r.cleanup.move_cursor(1),
+            KeyAction::Up => r.cleanup.move_cursor(-1),
+            KeyAction::PageDown => r.cleanup.move_cursor(10),
+            KeyAction::PageUp => r.cleanup.move_cursor(-10),
+            KeyAction::Right | KeyAction::Left => {
+                if let Some(Line::Group(key)) = r.cleanup.cursor {
+                    let open = r.cleanup.expanded.contains(&key);
+                    if open == (action == KeyAction::Left) {
+                        r.cleanup.toggle(key);
+                    }
+                }
+            }
+            KeyAction::Enter => match r.cleanup.cursor {
+                Some(Line::More(key)) => r.cleanup.show_more(key),
+                Some(Line::Smaller(section)) => {
+                    r.cleanup.show_small.insert(section);
+                }
+                Some(line) => match r.cleanup.candidate_of(line) {
+                    Some(candidate) => {
+                        r.reveal_candidate(candidate, Instant::now());
+                        r.focus = Pane::Tree;
+                    }
+                    None => {
+                        if let Line::Group(key) = line {
+                            r.cleanup.toggle(key);
+                        }
+                    }
+                },
+                None => {}
+            },
+            KeyAction::Trash => self.cleanup_trash(),
+            _ => {}
+        }
+        let Screen::Results(r) = &mut self.screen else {
+            return Task::none();
+        };
+        match r.cleanup.follow_cursor() {
+            Some(y) => {
+                r.cleanup.scroll_y = y;
+                operation::scroll_to(
+                    cleanup_pane::list_id(),
+                    scrollable::AbsoluteOffset {
+                        x: None,
+                        y: Some(y),
+                    },
+                )
+            }
+            None => Task::none(),
+        }
+    }
+
+    /// ⌘⌫ in the cleanup pane (design §7.1, D8): one focused folder goes the normal way;
+    /// groups and tool-only rules get a toast instead.
+    fn cleanup_trash(&mut self) {
+        let Screen::Results(r) = &self.screen else {
+            return;
+        };
+        let Some(line) = r.cleanup.cursor else { return };
+        let key = match line {
+            Line::Group(key) | Line::Item(key, _) | Line::More(key) => key,
+            Line::Smaller(_) => return,
+        };
+        let Some(group) = r.cleanup.group(key) else {
+            return;
+        };
+        if let Some(command) = &group.command {
+            self.toast = Some(Toast::info(format!("Use the command instead: {command}")));
+            return;
+        }
+        let Some(candidate) = r.cleanup.candidate_of(line) else {
+            self.toast = Some(Toast::info(
+                "Select one folder in the group to move it to the Trash.",
+            ));
+            return;
+        };
+        let target = match candidate {
+            CandidateRef::Dir(id) => TrashTarget::Dir(id),
+            CandidateRef::File(dir, index) => TrashTarget::File(dir, index),
+        };
+        self.request_trash_target(target);
+    }
+
     fn request_trash(&mut self) {
         let Screen::Results(r) = &self.screen else {
             return;
@@ -710,6 +882,13 @@ impl App {
                 return;
             }
             None => return,
+        };
+        self.request_trash_target(target);
+    }
+
+    fn request_trash_target(&mut self, target: TrashTarget) {
+        let Screen::Results(r) = &self.screen else {
+            return;
         };
         let planned = trash::plan(
             r,
@@ -833,21 +1012,51 @@ impl App {
                 .style(theme::hairline)
         };
         let home = self.env.home.as_deref();
-        column![
-            toolbar,
-            rule(),
-            nav::view(results, width, home),
-            rule(),
-            columns::view(results, Instant::now()),
+        column![toolbar, rule(), nav::view(results, width, home), rule(),]
+            .push(self.content_row(results, width))
+            .push(rule())
+            .push(selection_bar::view(results, width, home, unix_now()))
+            .into()
+    }
+}
+
+impl App {
+    /// The tree pane (with the FDA bar at its bottom) and, when there is room, the cleanup pane.
+    fn content_row<'a>(&'a self, results: &'a Results, width: f32) -> Element<'a, Message> {
+        let tree = column![columns::view(results, Instant::now())]
+            .push(
+                (results.fda_bar && !self.fda_dismissed)
+                    .then(|| errors::fda_bar(self.env.terminal.as_deref())),
+            )
+            .width(Fill);
+        if !(self.side_pane && side_pane_fits(width)) {
+            return tree.into();
+        }
+        let pane = container(cleanup_pane::view(
+            &results.cleanup,
+            results.focus == Pane::Cleanup,
+        ))
+        .width(side_pane_width(width));
+        row![
+            tree,
+            container(space())
+                .width(1)
+                .height(Fill)
+                .style(theme::hairline),
+            pane
         ]
-        .push(
-            (results.fda_bar && !self.fda_dismissed)
-                .then(|| errors::fda_bar(self.env.terminal.as_deref())),
-        )
-        .push(rule())
-        .push(selection_bar::view(results, width, home, unix_now()))
         .into()
     }
+}
+
+/// clamp(320, 34% of the window, 480).
+fn side_pane_width(window: f32) -> f32 {
+    (window * 0.34).clamp(320.0, 480.0)
+}
+
+/// Hidden below 1000 px, and whenever the tree would get narrower than 440 px (UX §6.1).
+fn side_pane_fits(window: f32) -> bool {
+    window >= 1000.0 && window - side_pane_width(window) >= 440.0
 }
 
 /// Drop and resize events, regardless of which widget captured them.
@@ -960,12 +1169,9 @@ impl App {
     pub fn start_simulated(&mut self, path: &str) -> scan_task::ScanId {
         let id = self.scan_ids.next();
         let active = scan_task::ActiveScan::inert(id);
-        self.screen = Screen::Results(Box::new(Results::new(
-            path.into(),
-            "test".into(),
-            None,
-            active,
-        )));
+        let mut results = Box::new(Results::new(path.into(), "test".into(), None, active));
+        results.engine = Some(Arc::clone(&self.env.engine));
+        self.screen = Screen::Results(results);
         id
     }
 

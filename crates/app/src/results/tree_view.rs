@@ -64,6 +64,10 @@ pub struct TreeView {
     pub viewport: Viewport,
     pub selection: Option<RowKey>,
     pub history: History,
+    /// Calm re-orders so far: the cleanup pane re-ranks on the same clock.
+    pub reorders: u64,
+    /// A row revealed from the cleanup pane flashes twice.
+    pub flash: Option<(RowKey, Instant)>,
 }
 
 impl Default for TreeView {
@@ -80,6 +84,8 @@ impl Default for TreeView {
             viewport: Viewport::default(),
             selection: None,
             history: History::default(),
+            reorders: 0,
+            flash: None,
         }
     }
 }
@@ -530,6 +536,7 @@ impl TreeView {
                 self.orders.insert(id, calm);
             }
             self.reorder.post_trash = false;
+            self.reorders += 1;
             return self.rebuild(tree, now);
         }
         let throttled = self

@@ -4,7 +4,7 @@
 use super::Risk;
 use crate::git::GitStatus;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Section {
     SafeToDelete,
     ReviewFirst,
