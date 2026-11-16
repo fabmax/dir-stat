@@ -30,15 +30,21 @@ pub const REVEAL_LABEL: &str = if cfg!(target_os = "macos") {
 pub enum Action {
     Reveal,
     CopyPath,
-    ScanVolume,
+    /// `Err` holds why it is disabled.
+    ScanVolume(Result<(), &'static str>),
+    Rescan(Result<(), &'static str>),
     PrivacySettings,
     /// Move to Trash…; `Err` holds why it is disabled.
     Trash(Result<(), &'static str>),
 }
 
 /// Whether the trash button works for a folder (G1, UX §5.5).
-fn folder_trash(tree: &Tree, id: dirstat_core::tree::NodeId) -> Result<(), &'static str> {
+fn folder_trash(results: &Results, id: dirstat_core::tree::NodeId) -> Result<(), &'static str> {
+    let tree = &results.tree;
     let node = tree.node(id);
+    if results.rescanning_within(id) {
+        return Err("Available when the rescan finishes.");
+    }
     let flags = |a: dirstat_core::tree::NodeId| tree.node(a).flags();
     let busy = std::iter::once(id).chain(tree.ancestors(id)).any(|a| {
         flags(a).contains(NodeFlags::TRASHED)
@@ -54,6 +60,13 @@ fn folder_trash(tree: &Tree, id: dirstat_core::tree::NodeId) -> Result<(), &'sta
     } else {
         Ok(())
     }
+}
+
+fn rescan(results: &Results, id: dirstat_core::tree::NodeId) -> Result<(), &'static str> {
+    if results.tree.node(id).has_flag(NodeFlags::RESCANNING) {
+        return Err("Rescanning…");
+    }
+    results.rescan_refusal(id).map_or(Ok(()), Err)
 }
 
 /// What the bar shows for one selection. Pure, so the per-type rules are tested.
@@ -94,14 +107,29 @@ pub fn contents(results: &Results, key: RowKey, home: Option<&Path>, now: i64) -
         RowKey::Dir(id) => match node.state() {
             NodeState::Skipped(Skip::MountPoint | Skip::OtherFilesystem) => {
                 details.push("Separate volume, not included".into());
-                actions = vec![Action::ScanVolume, Action::Reveal];
+                // D2: a scan of / already covers the Data volume through its firmlinks.
+                let data = cfg!(target_os = "macos")
+                    && tree.path_of(id) == Path::new("/System/Volumes/Data");
+                actions = vec![
+                    Action::ScanVolume(if data {
+                        Err("Scanning / already covers this volume")
+                    } else {
+                        Ok(())
+                    }),
+                    Action::Reveal,
+                ];
             }
             NodeState::Skipped(_) => details.push("Not scanned".into()),
-            NodeState::Pending => details.push(if tree.is_stopped() {
-                "Not scanned – the scan was stopped".into()
-            } else {
-                "Waiting to be scanned".into()
-            }),
+            NodeState::Pending => {
+                details.push(if tree.is_stopped() {
+                    "Not scanned – the scan was stopped".into()
+                } else {
+                    "Waiting to be scanned".into()
+                });
+                if tree.is_stopped() {
+                    actions.push(Action::Rescan(rescan(results, id)));
+                }
+            }
             _ if node.error().is_some() => {
                 let class = node.error().map(|e| e.class).unwrap_or(ErrorClass::Other);
                 warning = true;
@@ -109,6 +137,7 @@ pub fn contents(results: &Results, key: RowKey, home: Option<&Path>, now: i64) -
                 if class == ErrorClass::PrivacyBlocked && platform::PRIVACY_SETTINGS_URL.is_some() {
                     actions.push(Action::PrivacySettings);
                 }
+                actions.push(Action::Rescan(rescan(results, id)));
             }
             _ => {
                 let total = node.total();
@@ -120,7 +149,8 @@ pub fn contents(results: &Results, key: RowKey, home: Option<&Path>, now: i64) -
                 details.push(size);
                 details.push(format::plural(total.items, "item", "items"));
                 details.extend(modified(node.newest_mtime(), now));
-                actions.push(Action::Trash(folder_trash(tree, id)));
+                actions.push(Action::Rescan(rescan(results, id)));
+                actions.push(Action::Trash(folder_trash(results, id)));
             }
         },
         RowKey::File(dir, index) => {
@@ -213,7 +243,9 @@ pub fn view<'a>(
             let mut buttons: Row<'a, Message> = row![].spacing(8);
             for action in c.actions {
                 let disabled = match action {
-                    Action::Trash(Err(why)) => Some(why),
+                    Action::Trash(Err(why))
+                    | Action::Rescan(Err(why))
+                    | Action::ScanVolume(Err(why)) => Some(why),
                     _ => None,
                 };
                 let trash_label = if cfg!(windows) {
@@ -225,7 +257,8 @@ pub fn view<'a>(
                     Action::Trash(_) => (trash_label, "Trash…", Message::RequestTrash),
                     Action::Reveal => (REVEAL_LABEL, "Reveal", Message::RevealSelection),
                     Action::CopyPath => ("Copy Path", "Copy", Message::CopySelection),
-                    Action::ScanVolume => ("Scan This Volume", "Scan", Message::ScanSelection),
+                    Action::ScanVolume(_) => ("Scan This Volume", "Scan", Message::ScanSelection),
+                    Action::Rescan(_) => ("Rescan", "Rescan", Message::Rescan),
                     Action::PrivacySettings => (
                         "Open Privacy Settings",
                         "Privacy",
@@ -294,6 +327,8 @@ mod tests {
             ActiveScan::inert(ScanId(1)),
         );
         r.tree = builder.build();
+        r.active = None;
+        r.phase = crate::results::Phase::Complete;
         r
     }
 
@@ -312,12 +347,17 @@ mod tests {
         assert_eq!(folder.details, "3.00 MB · 3 items · modified 2 days ago");
         assert_eq!(
             folder.actions,
-            [Action::Reveal, Action::CopyPath, Action::Trash(Ok(()))]
+            [
+                Action::Reveal,
+                Action::CopyPath,
+                Action::Rescan(Ok(())),
+                Action::Trash(Ok(()))
+            ]
         );
 
         let mount = contents(&r, RowKey::Dir(NodeId(2)), home, 0).unwrap();
         assert_eq!(mount.details, "Separate volume, not included");
-        assert_eq!(mount.actions, [Action::ScanVolume, Action::Reveal]);
+        assert_eq!(mount.actions, [Action::ScanVolume(Ok(())), Action::Reveal]);
 
         let secret = contents(&r, RowKey::Dir(NodeId(3)), home, 0).unwrap();
         assert!(secret.warning);

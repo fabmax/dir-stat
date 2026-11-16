@@ -6,6 +6,7 @@ pub mod cleanup;
 pub mod cleanup_pane;
 pub mod columns;
 pub mod errors;
+pub mod migrate;
 pub mod nav;
 pub mod order;
 pub mod rows;
@@ -76,6 +77,21 @@ pub struct Results {
     pub focus: Pane,
     cleanup_dirty: bool,
     cleanup_seen: (u64, NodeId),
+    /// A subtree rescan in flight (design §4.6). It never changes `phase`.
+    pub rescan: Option<Rescan>,
+}
+
+/// A rescan accumulates into its own tree; the main tree keeps the old numbers until the
+/// swap.
+pub struct Rescan {
+    pub active: ActiveScan,
+    pub target: NodeId,
+    pub sub: Tree,
+}
+
+/// Dropping a big tree takes a while; do it off the UI thread.
+fn drop_later(tree: Tree) {
+    std::thread::spawn(move || drop(tree));
 }
 
 /// Which pane has the keyboard.
@@ -111,6 +127,8 @@ pub enum ScanOutcome {
     Started(PathBuf),
     /// The root could not be opened.
     Failed(StartError),
+    /// A subtree rescan couldn't start; the toast text.
+    RescanFailed(String),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -141,6 +159,7 @@ impl Results {
             focus: Pane::Tree,
             cleanup_dirty: true,
             cleanup_seen: (0, NodeId::ROOT),
+            rescan: None,
             tree: Tree::opening(root),
             phase: Phase::Opening,
             active: Some(active),
@@ -156,6 +175,9 @@ impl Results {
     }
 
     pub fn on_scan(&mut self, id: ScanId, update: Update, now: Instant) -> ScanOutcome {
+        if self.rescan.as_ref().is_some_and(|r| r.active.id == id) {
+            return self.on_rescan(update, now);
+        }
         let from_active = self.active.as_ref().is_some_and(|a| a.id == id);
         let from_draining = self.draining.as_ref().is_some_and(|a| a.id == id);
         if !from_active && !from_draining {
@@ -216,6 +238,12 @@ impl Results {
     /// Stop is final on the UI side at once: a worker blocked in a syscall may delay
     /// `Finished` for minutes (design §4.5).
     pub fn stop(&mut self) -> StopOutcome {
+        if let Some(rescan) = self.rescan.take() {
+            // Nothing changes: the sub-tree is discarded (design §4.5).
+            rescan.active.handle.cancel();
+            self.clear_rescanning(rescan.target);
+            return StopOutcome::Stopped;
+        }
         let Some(active) = self.active.take() else {
             return StopOutcome::Nothing;
         };
@@ -235,7 +263,172 @@ impl Results {
 
     /// Rescan only needs no scan in flight; a draining one doesn't count.
     pub fn can_rescan(&self) -> bool {
-        self.active.is_none() && matches!(self.phase, Phase::Complete | Phase::Stopped)
+        self.active.is_none()
+            && self.rescan.is_none()
+            && matches!(self.phase, Phase::Complete | Phase::Stopped)
+    }
+
+    pub fn is_rescanning(&self) -> bool {
+        self.rescan.is_some()
+    }
+
+    /// A rescan runs at or below `id`: it can't be moved to the Trash meanwhile.
+    pub fn rescanning_within(&self, id: NodeId) -> bool {
+        self.rescan
+            .as_ref()
+            .is_some_and(|r| self.tree.is_within(r.target, id))
+    }
+
+    /// The selected folder, or the zoom root if a file or nothing is selected (UX §6.6).
+    pub fn rescan_target(&self) -> NodeId {
+        match self.view.selection {
+            Some(RowKey::Dir(id)) if self.tree.get(id).is_some() => id,
+            _ => self.view.zoom,
+        }
+    }
+
+    /// Why `target` can't be rescanned now (design §4.6), or `None`.
+    pub fn rescan_refusal(&self, target: NodeId) -> Option<&'static str> {
+        use dirstat_core::tree::NodeState;
+        if !self.can_rescan() {
+            return Some("Available when the scan ends.");
+        }
+        let node = self.tree.get(target)?;
+        let busy = std::iter::once(target)
+            .chain(self.tree.ancestors(target))
+            .any(|a| {
+                let f = self.tree.node(a).flags();
+                f.contains(NodeFlags::TRASHED) || f.contains(NodeFlags::TRASH_PENDING)
+            });
+        if busy {
+            return Some("Already in the Trash or being moved.");
+        }
+        if self
+            .trash_jobs
+            .values()
+            .any(|job| self.tree.is_within(job.target.dir(), target))
+        {
+            return Some("Available when the move to the Trash finishes.");
+        }
+        if let NodeState::Skipped(_) = node.state() {
+            return Some("This folder isn't part of the scan.");
+        }
+        None
+    }
+
+    /// The request for a rescan of `target`: a subtree gets its catalog context and the
+    /// linked inodes counted elsewhere (D9); the root is scanned like the first time.
+    pub fn rescan_request(
+        &self,
+        engine: &dirstat_core::catalog::Engine,
+        target: NodeId,
+    ) -> dirstat_core::scan::ScanRequest {
+        use dirstat_core::scan::ScanRequest;
+        let path = self.tree.path_of(target);
+        if target == NodeId::ROOT {
+            return ScanRequest::new(path);
+        }
+        ScanRequest {
+            context: Some(self.tree.context_for(engine, target)),
+            counted_elsewhere: Some(std::sync::Arc::new(self.tree.counted_elsewhere(target))),
+            ..ScanRequest::new(path)
+        }
+    }
+
+    /// The rescan has been launched: mark the target, keep the old numbers on screen.
+    pub fn begin_rescan(&mut self, target: NodeId, active: ActiveScan) {
+        // Starting any new scan drops a draining one (design §4.5).
+        self.draining = None;
+        self.tree.set_flag(target, NodeFlags::RESCANNING, true);
+        self.activity = ActivityModel::default();
+        let sub = Tree::opening(self.tree.path_of(target));
+        self.rescan = Some(Rescan {
+            active,
+            target,
+            sub,
+        });
+    }
+
+    fn clear_rescanning(&mut self, target: NodeId) {
+        if self.tree.get(target).is_some() {
+            self.tree.set_flag(target, NodeFlags::RESCANNING, false);
+        }
+    }
+
+    fn on_rescan(&mut self, update: Update, now: Instant) -> ScanOutcome {
+        let Some(rescan) = self.rescan.as_mut() else {
+            return ScanOutcome::Ignored;
+        };
+        match update {
+            Update::Started(info) => rescan.sub.start(info),
+            Update::Batch(batch) => {
+                for listing in batch.listings {
+                    rescan.sub.apply(listing);
+                }
+                self.activity.on_progress(batch.progress, now);
+            }
+            Update::Failed(error) => {
+                let rescan = self.rescan.take().expect("checked above");
+                let name = self
+                    .tree
+                    .node(rescan.target)
+                    .name()
+                    .to_string_lossy()
+                    .into_owned();
+                self.clear_rescanning(rescan.target);
+                return ScanOutcome::RescanFailed(match error.kind {
+                    std::io::ErrorKind::NotFound => {
+                        "Folder no longer exists — rescan the parent".into()
+                    }
+                    _ => format!("Couldn't rescan “{name}”: {}", error.message),
+                });
+            }
+            Update::Finished(summary) => {
+                let Rescan {
+                    active,
+                    target,
+                    mut sub,
+                } = self.rescan.take().expect("checked above");
+                if summary.cancelled || !sub.is_started() {
+                    self.clear_rescanning(target);
+                } else {
+                    sub.finish(&summary);
+                    self.swap_in(target, sub, active.id, summary, now);
+                }
+            }
+        }
+        ScanOutcome::Applied
+    }
+
+    /// Everything swaps in one step with one re-order (UX §6.6, design §4.6).
+    fn swap_in(&mut self, target: NodeId, sub: Tree, id: ScanId, summary: Summary, now: Instant) {
+        let saved = migrate::SavedView::capture(self, target);
+        let mut replaced = false;
+        if target == NodeId::ROOT {
+            drop_later(std::mem::replace(&mut self.tree, sub));
+            replaced = true;
+            self.phase = Phase::Complete;
+            self.summary = Some(summary);
+        } else {
+            self.tree.splice(target, sub);
+            self.tree.set_flag(target, NodeFlags::RESCANNING, false);
+            // Compaction changes every id: never while a trash job holds some.
+            if self.tree.needs_compaction() && self.trash_jobs.is_empty() {
+                let compacted = self.tree.compacted();
+                drop_later(std::mem::replace(&mut self.tree, compacted));
+                replaced = true;
+            }
+            if self.phase == Phase::Stopped && self.tree.node(NodeId::ROOT).is_done() {
+                self.phase = Phase::Complete;
+            }
+        }
+        if replaced {
+            // Late git and small-file results carry the old id and are dropped.
+            self.scan_id = id;
+            self.tree_gen = id.0 as u32;
+        }
+        self.scroll_to = Some(saved.restore(self, replaced, now));
+        self.cleanup_dirty = true;
     }
 
     pub fn tick(&mut self, now: Instant, button_held: bool) {
@@ -244,6 +437,10 @@ impl Results {
         }
         if self.active.is_some() {
             self.activity.refresh_path(&self.tree, now);
+        } else if let Some(rescan) = &self.rescan
+            && rescan.sub.is_started()
+        {
+            self.activity.refresh_path(&rescan.sub, now);
         }
         // While scanning the pane re-ranks with the tree's re-orders; afterwards (late
         // listings of a stopped scan) a new candidate shows at once.
@@ -510,6 +707,7 @@ impl Results {
         let flashing = self.view.flash.is_some_and(|(_, at)| at.elapsed() < FLASH);
         flashing
             || self.is_scanning()
+            || self.is_rescanning()
             || self.candidates.busy()
             || !self.trash_jobs.is_empty()
             || self.view.reorder.post_trash

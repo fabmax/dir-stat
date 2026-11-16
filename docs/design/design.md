@@ -1629,6 +1629,14 @@ Each milestone is one implementation pass. "Done" means: `cargo build`, `cargo t
 - `counted_elsewhere`, splice, root replacement, compaction, `results/migrate.rs`, one exact re-sort.
 - Rescan everything (⇧⌘R); Scan This Volume (not on the Data-volume row); New Scan confirmation while scanning.
 - *Accept:* the end-to-end splice and hard-link rescan tests (§10.2); the `migrate` tests; the UI shows old numbers until the swap, with no dip-then-grow; expansion, selection and history survive a rescan; a cancelled rescan leaves the tree unchanged; three ⌘R on the root of a `~/dev` scan keep RSS within §3.3.
+- *Done 2026-11-16.* App-level tests: old numbers until the swap, then one step; Stop and Failed leave the tree unchanged; a root rescan replaces the tree and keeps the selection; rescanning the last unfinished folder of a stopped scan completes it; refusals while scanning and with trash pending inside the target, while a sibling's rescan and a later `TrashFinished` keep the totals consistent; New Scan asks first. `migrate` unit tests cover splice, replacement, ancestor fallback, large files by name and git statuses. On `~/dev` (245 GB, 3.9M items): three root ⌘R each finish in ~16 s; RSS 223 MB after the first scan, ~344 MB during the first root rescan (old and new tree side by side) and then steady between 310 and 372 MB, no growth across the three. A subtree rescan of `dir-stat` shows "Rescanning dir-stat", the pulsing dot and a disabled Rescan button, then swaps with the selection kept. Notes:
+  - The subtree rescan lives in `Results.rescan` (its own `ActiveScan` and sub-tree), apart from `active`, so `phase` never changes for it; the activity field shows it like a scan ("Rescanning X", Stop).
+  - RSS during a root rescan is about two trees, above the ~210 MB single-tree figure of §3.3; macOS malloc doesn't hand all freed pages back after the old tree is dropped.
+  - `SavedView` saves everything by path from the scan root (not relative to the target) and restores it after every swap, so a splice, a compaction and a replacement take the same path. Cleanup-pane group expansion is keyed by rule, not node, and is kept.
+  - Compaction is skipped while a trash job is pending (it changes every id); a replacement or compaction gives the screen the rescan's scan id, so late git and small-file results are dropped.
+  - A finished splice that completes the root of a stopped scan sets `phase = Complete`.
+  - Rescan is offered in the selection bar for done, unreadable and never-scanned folders (of a stopped scan). Trash is refused for a folder that contains the rescan target.
+  - New Scan while scanning: "Stop scanning X?" with Keep Scanning (the default for Return) and Stop and Start Over. Scan This Volume is disabled on `/System/Volumes/Data` with "Scanning / already covers this volume".
 
 **M11 — Polish and packaging**
 - Unaccounted space row (volume-root scans, ≥ 1 GB and ≥ 1%).

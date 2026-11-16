@@ -690,3 +690,244 @@ mod cleanup_flow {
         );
     }
 }
+
+mod rescan_flow {
+    use super::*;
+    use crate::keys::KeyAction;
+    use crate::results::rows::RowKey;
+    use crate::results::scan_task::{ActiveScan, ScanId};
+    use crate::results::trash::Modal;
+    use dirstat_core::tree::NodeFlags;
+
+    fn before() -> TreeBuilder {
+        TreeBuilder::new(
+            "/r",
+            dir("r")
+                .child(dir("a").small_files(2, 10_000_000).child(dir("deep")))
+                .child(dir("b").small_files(1, 5_000_000)),
+        )
+    }
+
+    /// `a` after files were added: 30 MB.
+    fn a_after() -> TreeBuilder {
+        TreeBuilder::new(
+            "/r/a",
+            dir("a")
+                .small_files(3, 30_000_000)
+                .child(dir("deep"))
+                .child(dir("new")),
+        )
+    }
+
+    fn find(app: &App, p: &str) -> NodeId {
+        results(app)
+            .tree
+            .find_path(std::path::Path::new(p))
+            .unwrap()
+    }
+
+    fn total(app: &App, id: NodeId) -> u64 {
+        results(app).tree.node(id).total().alloc
+    }
+
+    /// Starts a rescan with an inert scan behind it and returns its id.
+    fn begin(app: &mut App, target: NodeId) -> ScanId {
+        let id = ScanId(900 + target.0 as u64);
+        let Screen::Results(r) = &mut app.screen else {
+            panic!()
+        };
+        assert_eq!(r.rescan_refusal(target), None);
+        r.begin_rescan(target, ActiveScan::inert(id));
+        id
+    }
+
+    fn feed(app: &mut App, id: ScanId, sub: &TreeBuilder, finish: bool) {
+        let _ = app.update(Message::Scan(id, Update::Started(sub.root_info())));
+        let _ = app.update(Message::Scan(id, batch(sub.listings())));
+        if finish {
+            let _ = app.update(Message::Scan(id, Update::Finished(Summary::default())));
+        }
+    }
+
+    #[test]
+    fn old_numbers_stay_until_the_swap_then_everything_moves_at_once() {
+        let mut app = app();
+        completed(&mut app, &before());
+        let a = find(&app, "/r/a");
+        let root_before = total(&app, NodeId::ROOT);
+        let a_before = total(&app, a);
+        let _ = app.update(Message::RowPressed(RowKey::Dir(a)));
+        let _ = app.update(Message::ToggleExpand(RowKey::Dir(a)));
+
+        let id = begin(&mut app, a);
+        assert!(results(&app).tree.node(a).has_flag(NodeFlags::RESCANNING));
+        feed(&mut app, id, &a_after(), false);
+        assert_eq!(total(&app, a), a_before, "no dip-then-grow");
+        assert_eq!(total(&app, NodeId::ROOT), root_before);
+        assert_eq!(
+            results(&app).phase,
+            Phase::Complete,
+            "a rescan keeps the phase"
+        );
+
+        let _ = app.update(Message::Scan(id, Update::Finished(Summary::default())));
+        let r = results(&app);
+        assert!(r.rescan.is_none());
+        assert!(!r.tree.node(a).has_flag(NodeFlags::RESCANNING));
+        let a_new = total(&app, a);
+        assert!(a_new > a_before + 19_000_000, "{a_new}");
+        assert_eq!(total(&app, NodeId::ROOT), root_before - a_before + a_new);
+        assert_eq!(r.view.selection, Some(RowKey::Dir(a)), "selection survives");
+        assert!(
+            r.tree.node(a).has_flag(NodeFlags::EXPANDED),
+            "expansion survives"
+        );
+        let new = find(&app, "/r/a/new");
+        assert!(
+            results(&app)
+                .view
+                .rows
+                .iter()
+                .any(|row| row.key == RowKey::Dir(new)),
+            "the new folder shows at once"
+        );
+    }
+
+    #[test]
+    fn stop_and_failure_leave_the_tree_unchanged() {
+        let mut app = app();
+        completed(&mut app, &before());
+        let a = find(&app, "/r/a");
+        let a_before = total(&app, a);
+
+        let id = begin(&mut app, a);
+        feed(&mut app, id, &a_after(), false);
+        let _ = app.update(Message::Key(KeyAction::Stop));
+        let r = results(&app);
+        assert!(r.rescan.is_none());
+        assert_eq!(r.phase, Phase::Complete);
+        assert!(!r.tree.node(a).has_flag(NodeFlags::RESCANNING));
+        assert_eq!(total(&app, a), a_before);
+        // A late Finished of the stopped rescan changes nothing.
+        let _ = app.update(Message::Scan(id, Update::Finished(Summary::default())));
+        assert_eq!(total(&app, a), a_before);
+
+        let id = begin(&mut app, a);
+        let _ = app.update(Message::Scan(
+            id,
+            Update::Failed(StartError {
+                kind: ErrorKind::NotFound,
+                message: "gone".into(),
+            }),
+        ));
+        assert_eq!(
+            app.toast_text(),
+            Some("Folder no longer exists — rescan the parent")
+        );
+        assert!(!results(&app).tree.node(a).has_flag(NodeFlags::RESCANNING));
+        assert!(results(&app).can_rescan());
+    }
+
+    #[test]
+    fn a_root_rescan_replaces_the_tree_and_keeps_the_view() {
+        let mut app = app();
+        completed(&mut app, &before());
+        let b = find(&app, "/r/b");
+        let _ = app.update(Message::RowPressed(RowKey::Dir(b)));
+        let id = begin(&mut app, NodeId::ROOT);
+        let after = TreeBuilder::new(
+            "/r",
+            dir("r")
+                .child(dir("b").small_files(1, 5_000_000))
+                .child(dir("c").small_files(1, 1_000_000)),
+        );
+        feed(&mut app, id, &after, true);
+        let r = results(&app);
+        assert!(r.tree.find_path(std::path::Path::new("/r/a")).is_none());
+        assert_eq!(r.view.selection, Some(RowKey::Dir(find(&app, "/r/b"))));
+        assert_eq!(r.scan_id, id, "late results of the old tree are dropped");
+        assert_eq!(r.phase, Phase::Complete);
+    }
+
+    #[test]
+    fn rescanning_the_last_unfinished_folder_completes_a_stopped_scan() {
+        let mut app = app();
+        let builder = before();
+        let scan = app.start_simulated("/r");
+        let _ = app.update(Message::Scan(scan, Update::Started(builder.root_info())));
+        let mut listings = builder.listings();
+        // Root and `b` listed; `a` (and below) never.
+        listings.retain(|l| l.id == NodeId::ROOT || l.id == NodeId(2));
+        let _ = app.update(Message::Scan(scan, batch(listings)));
+        let _ = app.update(Message::Key(KeyAction::Stop));
+        assert_eq!(results(&app).phase, Phase::Stopped);
+
+        let a = find(&app, "/r/a");
+        let id = begin(&mut app, a);
+        feed(&mut app, id, &a_after(), true);
+        let r = results(&app);
+        assert!(r.tree.node(NodeId::ROOT).is_done());
+        assert_eq!(r.phase, Phase::Complete);
+    }
+
+    #[test]
+    fn refusals_while_scanning_and_with_trash_pending() {
+        let mut app = app();
+        let builder = before();
+        let scan = app.start_simulated("/r");
+        let _ = app.update(Message::Scan(scan, Update::Started(builder.root_info())));
+        let _ = app.update(Message::Key(KeyAction::Rescan));
+        assert_eq!(app.toast_text(), Some("Available when the scan ends."));
+        let _ = app.update(Message::Scan(scan, batch(builder.listings())));
+        let _ = app.update(Message::Scan(scan, Update::Finished(Summary::default())));
+
+        // A trash job inside the target blocks its rescan, not a sibling's.
+        let deep = find(&app, "/r/a/deep");
+        let _ = app.update(Message::RowPressed(RowKey::Dir(deep)));
+        let _ = app.update(Message::RequestTrash);
+        let _ = app.update(Message::ConfirmTrash);
+        assert_eq!(results(&app).trash_jobs.len(), 1);
+        let a = find(&app, "/r/a");
+        assert_eq!(
+            results(&app).rescan_refusal(a),
+            Some("Available when the move to the Trash finishes.")
+        );
+        let b = find(&app, "/r/b");
+        let id = begin(&mut app, b);
+        feed(&mut app, id, &TreeBuilder::new("/r/b", dir("b")), true);
+
+        // The trash job finishes after the sibling's splice: totals stay consistent.
+        let root = total(&app, NodeId::ROOT);
+        let deep_size = total(&app, deep);
+        let generation = results(&app).tree_gen;
+        let path = results(&app).tree.path_of(deep);
+        let _ = app.update(Message::TrashFinished(
+            dirstat_core::trash::TrashJobId(1),
+            generation,
+            vec![dirstat_core::trash::TrashOutcome::Trashed(path)],
+        ));
+        assert_eq!(total(&app, NodeId::ROOT), root - deep_size);
+        assert!(results(&app).tree.node(deep).has_flag(NodeFlags::TRASHED));
+    }
+
+    #[test]
+    fn new_scan_while_scanning_asks_first() {
+        let mut app = app();
+        let builder = before();
+        let scan = app.start_simulated("/r");
+        let _ = app.update(Message::Scan(scan, Update::Started(builder.root_info())));
+        let _ = app.update(Message::Key(KeyAction::NewScan));
+        assert!(matches!(app.modal(), Some(Modal::StopScan { .. })));
+        let _ = app.update(Message::Key(KeyAction::Enter));
+        assert!(app.modal().is_none(), "Return keeps scanning");
+        assert!(matches!(app.screen, Screen::Results(_)));
+
+        let _ = app.update(Message::Key(KeyAction::NewScan));
+        let _ = app.update(Message::Key(KeyAction::Tab));
+        let _ = app.update(Message::Key(KeyAction::Space));
+        assert!(
+            matches!(app.screen, Screen::Start(_)),
+            "stopped and started over"
+        );
+    }
+}

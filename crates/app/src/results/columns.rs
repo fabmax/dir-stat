@@ -486,6 +486,22 @@ pub fn cells_for(
     } else if outdated {
         cells.size_tip = Some("Rescan to update".into());
     }
+    // A rescan in progress: the old numbers stay, in secondary color, the target pulsing
+    // (UX §6.6).
+    if !trashed && !pending {
+        let dir = key.dir();
+        if let Some(target) = std::iter::once(dir)
+            .chain(tree.ancestors(dir))
+            .find(|&a| tree.node(a).has_flag(NodeFlags::RESCANNING))
+        {
+            cells.size_tone = Tone::Secondary;
+            if key == RowKey::Dir(target) {
+                let phase = (now.saturating_duration_since(started).as_secs_f32() / 1.2).fract();
+                cells.marker = Marker::Scanning(0.35 + 0.65 * (1.0 - (phase * 2.0 - 1.0).abs()));
+                cells.size_tip = Some("Rescanning…".into());
+            }
+        }
+    }
     cells
 }
 
@@ -832,6 +848,31 @@ mod tests {
     fn cells(tree: &Tree, key: RowKey) -> Cells {
         let now = Instant::now();
         cells_for(tree, key, NodeId::ROOT, &HashMap::new(), now, now)
+    }
+
+    #[test]
+    fn rescanning_rows_keep_old_numbers_in_secondary() {
+        let mut tree = TreeBuilder::new(
+            "/r",
+            dir("r").child(dir("a").small_files(1, 5_000_000).child(dir("in"))),
+        )
+        .build();
+        let a = tree.find_path(std::path::Path::new("/r/a")).unwrap();
+        let inner = tree.find_path(std::path::Path::new("/r/a/in")).unwrap();
+        assert_eq!(cells(&tree, RowKey::Dir(a)).size_tone, Tone::Primary);
+        tree.set_flag(a, NodeFlags::RESCANNING, true);
+        let target = cells(&tree, RowKey::Dir(a));
+        assert_eq!(target.size_tone, Tone::Secondary);
+        assert_eq!(target.size, "5.01 MB", "old numbers stay");
+        assert!(matches!(target.marker, Marker::Scanning(_)));
+        assert_eq!(cells(&tree, RowKey::Dir(inner)).size_tone, Tone::Secondary);
+        tree.set_flag(a, NodeFlags::RESCANNING, false);
+        tree.set_flag(NodeId::ROOT, NodeFlags::RESCANNING, true);
+        assert_eq!(
+            cells(&tree, RowKey::Dir(a)).size_tone,
+            Tone::Secondary,
+            "root rescan"
+        );
     }
 
     #[test]

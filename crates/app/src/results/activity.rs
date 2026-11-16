@@ -95,10 +95,27 @@ pub struct Lines {
     pub button: &'static str,
 }
 
+/// A subtree rescan looks like a scan in the activity field; the phase itself stays.
+fn shown_phase(results: &Results) -> Phase {
+    if results.rescan.is_some() {
+        Phase::Scanning
+    } else {
+        results.phase
+    }
+}
+
 pub fn lines(results: &Results, title: &str) -> Lines {
     let a = &results.activity;
     let p = &a.progress;
-    match results.phase {
+    let rescan_name = results.rescan.as_ref().map(|r| {
+        results
+            .tree
+            .node(r.target)
+            .name()
+            .to_string_lossy()
+            .into_owned()
+    });
+    match shown_phase(results) {
         Phase::Opening => Lines {
             line1: format!("Opening {title}…"),
             line2: String::new(),
@@ -107,8 +124,13 @@ pub fn lines(results: &Results, title: &str) -> Lines {
             button: "Stop",
         },
         Phase::Scanning => {
-            let mut line1 = format!("Scanning {title}");
-            if let Some(fraction) = progress_fraction(results.estimate.as_ref(), p) {
+            let mut line1 = match &rescan_name {
+                Some(name) => format!("Rescanning {name}"),
+                None => format!("Scanning {title}"),
+            };
+            if rescan_name.is_none()
+                && let Some(fraction) = progress_fraction(results.estimate.as_ref(), p)
+            {
                 line1 += &format!(" · {}%", (fraction * 100.0).floor() as u64);
             }
             let mut stats = vec![
@@ -195,7 +217,7 @@ pub fn view<'a>(
     now: Instant,
 ) -> Element<'a, Message> {
     let l = lines(results, title);
-    let icon: Element<'a, Message> = match results.phase {
+    let icon: Element<'a, Message> = match shown_phase(results) {
         Phase::Complete => theme::BODY.text("✓").style(theme::text_good).into(),
         Phase::Stopped => theme::BODY.text("·").style(theme::text_secondary).into(),
         Phase::Opening | Phase::Scanning => {
@@ -295,8 +317,9 @@ fn progress_line<'a>(results: &Results, now: Instant) -> Element<'a, Message> {
             .style(theme::accent_fill)
     };
     let gap = |portion: Length| Space::new().width(portion).height(2);
-    let fraction = progress_fraction(results.estimate.as_ref(), &results.activity.progress);
-    match (results.phase, fraction) {
+    let fraction = progress_fraction(results.estimate.as_ref(), &results.activity.progress)
+        .filter(|_| results.rescan.is_none());
+    match (shown_phase(results), fraction) {
         (Phase::Complete | Phase::Stopped, _) => Space::new().width(Fill).height(2).into(),
         (Phase::Scanning, Some(f)) => {
             let done = ((f * 1000.0) as u16).max(1);

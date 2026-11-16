@@ -62,8 +62,19 @@ pub enum Focus {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Modal {
-    Confirm { plan: Box<TrashPlan>, focus: Focus },
-    Refuse { title: String, message: String },
+    Confirm {
+        plan: Box<TrashPlan>,
+        focus: Focus,
+    },
+    Refuse {
+        title: String,
+        message: String,
+    },
+    /// New Scan while scanning (UX §5.2). `Focus::Trash` is "Stop and Start Over".
+    StopScan {
+        title: String,
+        focus: Focus,
+    },
 }
 
 const SHARED_SPACE: &str = "Some files are shared with other folders (hard links or clones); this may free less than shown.";
@@ -103,7 +114,7 @@ pub fn plan(
                 || n.has_flag(NodeFlags::RESCANNING)
         })
     };
-    if blocked(dir) {
+    if blocked(dir) || results.rescanning_within(dir) {
         return Err(refused(
             "This item",
             "It is already being moved, rescanned or in the Trash.",
@@ -461,6 +472,29 @@ pub fn modal_view<'a>(modal: &'a Modal, home: Option<&std::path::Path>) -> Eleme
                 space().width(Fill),
                 dialog_button("OK", true, false, Message::CancelModal)
             ],
+        ]
+        .spacing(16),
+        Modal::StopScan { title, focus } => column![
+            theme::TITLE.text(title.clone()),
+            theme::BODY
+                .text("The results so far will be lost.")
+                .style(theme::text_secondary),
+            row![
+                space().width(Fill),
+                dialog_button(
+                    "Keep Scanning",
+                    *focus == Focus::Cancel,
+                    false,
+                    Message::CancelModal
+                ),
+                dialog_button(
+                    "Stop and Start Over",
+                    *focus == Focus::Trash,
+                    false,
+                    Message::StopAndStartOver
+                ),
+            ]
+            .spacing(8),
         ]
         .spacing(16),
         Modal::Confirm { plan, focus } => {

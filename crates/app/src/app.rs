@@ -97,6 +97,10 @@ pub enum Message {
     Scan(scan_task::ScanId, Update),
     Stop,
     NewScan,
+    /// "Stop and Start Over" in the New Scan confirmation.
+    StopAndStartOver,
+    /// The selected folder, or the zoom root (⌘R).
+    Rescan,
     RescanAll,
     /// 50 ms, only while something is live (design §6.5).
     Tick(Instant),
@@ -273,7 +277,12 @@ impl App {
             }
             Message::Scan(id, update) => self.on_scan(id, update),
             Message::Stop => self.stop(),
-            Message::NewScan => self.show_start(None),
+            Message::NewScan => self.new_scan(),
+            Message::StopAndStartOver => {
+                self.modal = None;
+                self.show_start(None);
+            }
+            Message::Rescan => return self.rescan(),
             Message::RescanAll => {
                 if let Screen::Results(r) = &self.screen
                     && r.can_rescan()
@@ -528,7 +537,46 @@ impl App {
                 let message = failure_banner(results.tree.root_path(), &error);
                 self.show_start(Some(message));
             }
+            ScanOutcome::RescanFailed(message) => self.toast = Some(Toast::error(message)),
         }
+    }
+
+    /// New Scan while a scan or rescan runs asks first (UX §5.2).
+    fn new_scan(&mut self) {
+        match &self.screen {
+            Screen::Results(r) if r.is_scanning() || r.is_rescanning() => {
+                let what = match &r.rescan {
+                    Some(rescan) => format!(
+                        "Stop rescanning {}?",
+                        r.tree.node(rescan.target).name().to_string_lossy()
+                    ),
+                    None => format!("Stop scanning {}?", r.title),
+                };
+                self.modal = Some(Modal::StopScan {
+                    title: what,
+                    focus: Focus::Cancel,
+                });
+            }
+            _ => self.show_start(None),
+        }
+    }
+
+    /// ⌘R: rescan the selected folder or the zoom root (design §4.6).
+    fn rescan(&mut self) -> Task<Message> {
+        let Screen::Results(r) = &mut self.screen else {
+            return Task::none();
+        };
+        let target = r.rescan_target();
+        if let Some(why) = r.rescan_refusal(target) {
+            self.toast = Some(Toast::info(why));
+            return Task::none();
+        }
+        let id = self.scan_ids.next();
+        let request = r.rescan_request(&self.env.engine, target);
+        let (active, task) =
+            scan_task::launch(id, request, Options::new(Arc::clone(&self.env.engine)));
+        r.begin_rescan(target, active);
+        task
     }
 
     fn stop(&mut self) {
@@ -573,6 +621,25 @@ impl App {
                 _ => Task::none(),
             };
         }
+        if let Some(Modal::StopScan { focus, .. }) = &mut self.modal {
+            // Return keeps scanning: stopping throws work away.
+            return match action {
+                KeyAction::Escape | KeyAction::Enter => self.update(Message::CancelModal),
+                KeyAction::Tab | KeyAction::ShiftTab => {
+                    *focus = if *focus == Focus::Cancel {
+                        Focus::Trash
+                    } else {
+                        Focus::Cancel
+                    };
+                    Task::none()
+                }
+                KeyAction::Space if *focus == Focus::Trash => {
+                    self.update(Message::StopAndStartOver)
+                }
+                KeyAction::Space => self.update(Message::CancelModal),
+                _ => Task::none(),
+            };
+        }
         if let Some(Modal::Refuse { .. }) = &self.modal {
             if matches!(
                 action,
@@ -599,7 +666,8 @@ impl App {
                 }
             }
             (Screen::Results(_), KeyAction::Escape | KeyAction::Stop) => self.stop(),
-            (Screen::Results(_), KeyAction::NewScan) => self.show_start(None),
+            (Screen::Results(_), KeyAction::NewScan) => self.new_scan(),
+            (Screen::Results(_), KeyAction::Rescan) => return self.rescan(),
             (Screen::Results(_), KeyAction::RescanAll) => return self.update(Message::RescanAll),
             (Screen::Results(r), KeyAction::TogglePane) => {
                 self.side_pane = !self.side_pane;

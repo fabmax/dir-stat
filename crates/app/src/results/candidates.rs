@@ -37,7 +37,12 @@ impl Candidates {
         if new.is_empty() {
             return false;
         }
-        let (outside, jobs) = git::plan_jobs(tree, new.iter().copied());
+        let unknown: Vec<CandidateRef> = new
+            .iter()
+            .copied()
+            .filter(|c| !self.status.contains_key(c))
+            .collect();
+        let (outside, jobs) = git::plan_jobs(tree, unknown);
         self.seen = tree.candidates().len();
         self.outside.extend(outside);
         for job in jobs {
@@ -68,6 +73,30 @@ impl Candidates {
     pub fn finished(&mut self, results: Vec<(CandidateRef, GitStatus)>) {
         self.running = false;
         self.status.extend(results);
+    }
+
+    /// After a rescan swapped the tree: statuses carried over by path, everything else
+    /// planned again (design §4.6).
+    pub fn rebuilt(
+        tree: &Tree,
+        known: impl IntoIterator<Item = (CandidateRef, GitStatus)>,
+        running: bool,
+    ) -> Candidates {
+        let mut c = Candidates {
+            status: known.into_iter().collect(),
+            running,
+            ..Candidates::default()
+        };
+        c.collect(tree);
+        c
+    }
+
+    pub fn statuses(&self) -> impl Iterator<Item = (CandidateRef, GitStatus)> + '_ {
+        self.status.iter().map(|(&c, &s)| (c, s))
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.running
     }
 
     /// Something is waiting or running: keep the tick alive.

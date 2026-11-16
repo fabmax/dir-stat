@@ -27,8 +27,8 @@ pub struct Place {
 
 #[derive(Debug, Default)]
 pub struct History {
-    back: Vec<Place>,
-    forward: Vec<Place>,
+    pub back: Vec<Place>,
+    pub forward: Vec<Place>,
 }
 
 impl History {
@@ -129,6 +129,32 @@ impl TreeView {
     }
 
     /// Orders for the zoom root and every expanded folder below it, nothing else.
+    /// After a rescan swap: fresh orders (one exact sort) and rows, with the selection kept
+    /// at `selection_y` on screen when it was visible. Returns the new offset.
+    pub fn rebuild_after_swap(
+        &mut self,
+        tree: &Tree,
+        selection_y: Option<f32>,
+        offset_y: f32,
+        now: Instant,
+    ) -> f32 {
+        self.orders.clear();
+        self.sync_orders(tree);
+        self.rows = rows::build(tree, self.zoom, &self.orders, &self.open_aggregates);
+        self.scan_rows_dirty = false;
+        self.last_rows_build = Some(now);
+        let index = self
+            .selection
+            .and_then(|s| self.rows.iter().position(|r| r.key == s));
+        let offset = match (index, selection_y) {
+            (Some(i), Some(y)) => i as f32 * ROW_H - y,
+            _ => offset_y,
+        };
+        let offset = offset.clamp(0.0, self.viewport.max_offset(self.rows.len()));
+        self.viewport.offset_y = offset;
+        offset
+    }
+
     fn sync_orders(&mut self, tree: &Tree) {
         let mut wanted = HashMap::new();
         let mut stack = vec![self.zoom];
