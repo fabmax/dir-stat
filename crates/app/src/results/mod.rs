@@ -6,6 +6,7 @@ pub mod candidates;
 pub mod cleanup;
 pub mod cleanup_pane;
 pub mod columns;
+pub mod context_menu;
 pub mod errors;
 pub mod migrate;
 pub mod nav;

@@ -37,6 +37,52 @@ pub enum Action {
     Trash(Result<(), &'static str>),
 }
 
+/// How an action reads and what it sends; the bar and the tree's context menu share it.
+pub struct Labels {
+    pub full: &'static str,
+    /// For narrow windows (D16).
+    pub short: &'static str,
+    /// Acts on the selection.
+    pub message: Message,
+    /// Why it is unavailable.
+    pub disabled: Option<&'static str>,
+}
+
+pub const TRASH_LABEL: &str = if cfg!(windows) {
+    "Move to Recycle Bin…"
+} else {
+    "Move to Trash…"
+};
+
+impl Action {
+    pub fn labels(&self) -> Labels {
+        let disabled = match self {
+            Action::Trash(Err(why)) | Action::Rescan(Err(why)) | Action::ScanVolume(Err(why)) => {
+                Some(*why)
+            }
+            _ => None,
+        };
+        let (full, short, message) = match self {
+            Action::Trash(_) => (TRASH_LABEL, "Trash…", Message::RequestTrash),
+            Action::Reveal => (REVEAL_LABEL, "Reveal", Message::RevealSelection),
+            Action::CopyPath => ("Copy Path", "Copy", Message::CopySelection),
+            Action::ScanVolume(_) => ("Scan This Volume", "Scan", Message::ScanSelection),
+            Action::Rescan(_) => ("Rescan", "Rescan", Message::Rescan),
+            Action::PrivacySettings => (
+                "Open Privacy Settings",
+                "Privacy",
+                Message::OpenPrivacySettings,
+            ),
+        };
+        Labels {
+            full,
+            short,
+            message,
+            disabled,
+        }
+    }
+}
+
 /// Whether the trash button works for a folder (G1, UX §5.5).
 fn folder_trash(results: &Results, id: dirstat_core::tree::NodeId) -> Result<(), &'static str> {
     let tree = &results.tree;
@@ -258,29 +304,12 @@ pub fn view<'a>(
                 );
             let mut buttons: Row<'a, Message> = row![].spacing(8);
             for action in c.actions {
-                let disabled = match action {
-                    Action::Trash(Err(why))
-                    | Action::Rescan(Err(why))
-                    | Action::ScanVolume(Err(why)) => Some(why),
-                    _ => None,
-                };
-                let trash_label = if cfg!(windows) {
-                    "Move to Recycle Bin…"
-                } else {
-                    "Move to Trash…"
-                };
-                let (full, short, message) = match action {
-                    Action::Trash(_) => (trash_label, "Trash…", Message::RequestTrash),
-                    Action::Reveal => (REVEAL_LABEL, "Reveal", Message::RevealSelection),
-                    Action::CopyPath => ("Copy Path", "Copy", Message::CopySelection),
-                    Action::ScanVolume(_) => ("Scan This Volume", "Scan", Message::ScanSelection),
-                    Action::Rescan(_) => ("Rescan", "Rescan", Message::Rescan),
-                    Action::PrivacySettings => (
-                        "Open Privacy Settings",
-                        "Privacy",
-                        Message::OpenPrivacySettings,
-                    ),
-                };
+                let Labels {
+                    full,
+                    short,
+                    message,
+                    disabled,
+                } = action.labels();
                 let label = if narrow { short } else { full };
                 let b = button(theme::SMALL.with_font(fonts::MEDIUM).text(label))
                     .padding([4, 10])
