@@ -29,10 +29,10 @@ use crate::results::rows::RowKey;
 use crate::results::scan_task::{self, ScanIdGen};
 use crate::results::trash::{self, Focus, Modal, TrashTarget};
 use crate::results::tree_view::Effect;
-use crate::results::treemap_view;
 use crate::results::{
     Pane, Results, ScanOutcome, StopOutcome, activity, columns, errors, nav, selection_bar,
 };
+use crate::results::{breakdown_view, treemap_view};
 use crate::start::{self, StartState};
 use crate::{Cli, theme};
 
@@ -40,6 +40,8 @@ use crate::{Cli, theme};
 /// build one without disk or settings.
 pub struct Env {
     pub engine: Arc<Engine>,
+    /// Well-known locations for the space bar (resolved like the catalog's).
+    pub places: Arc<dirstat_core::breakdown::Places>,
     pub prefs_store: Box<dyn PrefsStore>,
     pub cards: Vec<VolumeCard>,
     /// The mount table at startup, for progress estimates (never blocks).
@@ -170,8 +172,10 @@ impl App {
     ) -> (App, Task<Message>) {
         let mounts = platform::mounts();
         let system_name = platform::system_disk_name();
+        let resolver = Resolver::from_env().canonicalized();
         let env = Env {
-            engine: Arc::new(Engine::new(&Resolver::from_env().canonicalized())),
+            engine: Arc::new(Engine::new(&resolver)),
+            places: Arc::new(dirstat_core::breakdown::Places::new(&resolver)),
             prefs_store: Box::new(JsonPrefs::in_config_dir()),
             cards: volumes::cards_from(platform::home_dir().as_deref(), &mounts, &system_name),
             mounts,
@@ -552,6 +556,7 @@ impl App {
         // Replacing the screen drops a previous scan, which cancels it.
         let mut results = Results::new(path, title, estimate, active);
         results.engine = Some(Arc::clone(&self.env.engine));
+        results.breakdown.places = Arc::clone(&self.env.places);
         results.view.set_height(tree_height(self.window_size));
         results.view.sort = self.prefs.sort;
         // Granted since startup? The check lists one folder, so it is cheap to repeat.
@@ -1261,11 +1266,18 @@ impl App {
                 .style(theme::hairline)
         };
         let home = self.env.home.as_deref();
-        column![toolbar, rule(), nav::view(results, width, home), rule(),]
-            .push(self.content_row(results, width))
-            .push(rule())
-            .push(selection_bar::view(results, width, home, unix_now()))
-            .into()
+        column![
+            toolbar,
+            rule(),
+            nav::view(results, width, home),
+            rule(),
+            breakdown_view::view(results, width),
+            rule(),
+        ]
+        .push(self.content_row(results, width))
+        .push(rule())
+        .push(selection_bar::view(results, width, home, unix_now()))
+        .into()
     }
 }
 
@@ -1431,9 +1443,10 @@ fn pointer_moved(
         .then_some(Message::PointerMoved)
 }
 
-/// The tree's viewport: the window minus toolbar, path bar, rules and the column header.
+/// The tree's viewport: the window minus toolbar, path bar, space bar, rules and the column
+/// header.
 fn tree_height(window: Size) -> f32 {
-    window.height - 44.0 - 1.0 - 32.0 - 1.0 - columns::HEADER_H
+    window.height - 44.0 - 1.0 - 32.0 - 1.0 - breakdown_view::HEIGHT - 1.0 - columns::HEADER_H
 }
 
 /// The folder picker must be created on the main thread, i.e. here in `update` (API §g).
@@ -1531,6 +1544,7 @@ impl App {
         let active = scan_task::ActiveScan::inert(id);
         let mut results = Box::new(Results::new(path.into(), "test".into(), None, active));
         results.engine = Some(Arc::clone(&self.env.engine));
+        results.breakdown.places = Arc::clone(&self.env.places);
         self.screen = Screen::Results(results);
         id
     }
