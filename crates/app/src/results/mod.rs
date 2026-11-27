@@ -1,6 +1,7 @@
 //! The Results screen: the tree of one scan, its live state and the views around it.
 
 pub mod activity;
+pub mod breakdown_view;
 pub mod candidates;
 pub mod cleanup;
 pub mod cleanup_pane;
@@ -87,6 +88,7 @@ pub struct Results {
     /// blocked then is guarded by System Integrity Protection: no bar, no settings button.
     pub has_fda: bool,
     pub map: treemap_view::MapState,
+    pub breakdown: breakdown_view::BreakdownState,
 }
 
 /// A rescan accumulates into its own tree; the main tree keeps the old numbers until the
@@ -185,6 +187,7 @@ impl Results {
             rescan: None,
             has_fda: false,
             map: treemap_view::MapState::default(),
+            breakdown: breakdown_view::BreakdownState::default(),
             tree: Tree::opening(root),
             phase: Phase::Opening,
             active: Some(active),
@@ -231,6 +234,7 @@ impl Results {
                     self.view.on_listing(&self.tree, id, effect);
                 }
                 self.map.touch();
+                self.breakdown.touch();
                 if from_active {
                     self.activity.on_progress(batch.progress, now);
                     let p = &self.activity.progress;
@@ -260,6 +264,7 @@ impl Results {
                         self.candidates.collect(&self.tree);
                         self.cleanup_dirty = true;
                         self.map.touch();
+                        self.breakdown.touch();
                     }
                 } else {
                     self.draining = None;
@@ -480,6 +485,7 @@ impl Results {
         self.scroll_to = Some(saved.restore(self, replaced, now));
         self.cleanup_dirty = true;
         self.map.touch();
+        self.breakdown.touch();
     }
 
     pub fn tick(&mut self, now: Instant, button_held: bool) {
@@ -500,6 +506,14 @@ impl Results {
         }
         let scanning = self.active.is_some() || self.rescan.is_some();
         self.map.tick(&self.tree, self.view.zoom, now, scanning);
+        self.breakdown.tick(
+            &self.tree,
+            self.engine.as_deref(),
+            self.view.zoom,
+            self.view.unaccounted,
+            now,
+            scanning,
+        );
         if let Some(offset) = self
             .view
             .tick(&self.tree, now, self.active.is_some(), button_held)
@@ -862,6 +876,7 @@ impl Results {
         }
         self.cleanup_dirty = true;
         self.map.touch();
+        self.breakdown.touch();
         if let Some(trash_node) = home.and_then(|h| self.tree.find_path(&h.join(".Trash"))) {
             self.tree.set_flag(trash_node, NodeFlags::OUTDATED, true);
         }

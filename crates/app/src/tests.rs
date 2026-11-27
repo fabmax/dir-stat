@@ -28,6 +28,7 @@ fn app() -> App {
 fn app_with(prefs_store: Box<dyn crate::prefs::PrefsStore>) -> App {
     let env = Env {
         engine: engine(),
+        places: Default::default(),
         prefs_store,
         cards: Vec::new(),
         mounts: Vec::new(),
