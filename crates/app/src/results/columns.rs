@@ -53,10 +53,10 @@ pub fn view(results: &Results, now: Instant) -> Element<'_, Message> {
         .width(Fill)
         .height(Fill)
         .style(theme::surface);
-    mouse_area(pane)
+    let pane = mouse_area(pane)
         .on_enter(Message::PointerIn(true))
-        .on_exit(Message::PointerIn(false))
-        .into()
+        .on_exit(Message::PointerIn(false));
+    super::context_menu::RightClickAt::new(pane, Message::ContextMenuAt).into()
 }
 
 /// The header and the visible rows for one layout size. Runs on every layout, so its cost
@@ -376,6 +376,7 @@ fn row_view<'a>(
     mouse_area(hover(base, highlight))
         .on_press(Message::RowPressed(r.key))
         .on_double_click(Message::RowActivated(r.key))
+        .on_right_press(Message::RowContextMenu(r.key))
         .into()
 }
 

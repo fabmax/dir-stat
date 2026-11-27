@@ -33,7 +33,9 @@ crates/app/    dir-stat binary (iced)
   results/       the Results screen: mod.rs (Results state, on_scan, tick), tree_view/rows/columns/order
                  (virtualized tree + calm sorting), cleanup*/candidates (Cleanup pane), treemap*
                  (Map tab), breakdown_view.rs (space bar), trash.rs (dialog/flow), nav.rs (path bar),
-                 activity.rs (progress field), selection_bar.rs, errors.rs, migrate.rs (rescan swap)
+                 activity.rs (progress field), selection_bar.rs (selected row + its actions,
+                 shared with) context_menu.rs (right-click menu on tree rows), errors.rs,
+                 migrate.rs (rescan swap)
   start.rs       start screen (volume cards, recents)
   theme.rs       design tokens (LIGHT/DARK), text roles, all widget styles, map_fill palette
   script.rs      screenshot/script harness (feature `screenshot`)

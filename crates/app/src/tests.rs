@@ -332,6 +332,85 @@ mod trash_flow {
         let _ = app.update(Message::RowPressed(RowKey::Dir(id)));
     }
 
+    /// Right-click on a row at window position (300, 200).
+    fn right_click(app: &mut App, id: NodeId) {
+        let _ = app.update(Message::RowContextMenu(RowKey::Dir(id)));
+        let _ = app.update(Message::ContextMenuAt(iced::Point::new(300.0, 200.0)));
+    }
+
+    #[test]
+    fn right_click_selects_the_row_and_its_menu_moves_it_to_the_trash() {
+        use crate::results::context_menu;
+        let mut app = app();
+        let (_, cache, _) = scanned(&mut app);
+        right_click(&mut app, cache);
+        let menu = app.context_menu().expect("open");
+        assert_eq!(menu.at, Some(iced::Point::new(300.0, 200.0)));
+        assert_eq!(results(&app).view.selection, Some(RowKey::Dir(cache)));
+        let actions = context_menu::actions(results(&app), menu.key, 0);
+        assert_eq!(actions.first(), Some(&Action::Trash(Ok(()))), "{actions:?}");
+
+        let _ = app.update(Message::ContextMenuChose(Box::new(Message::RequestTrash)));
+        assert!(app.context_menu().is_none());
+        assert!(
+            matches!(app.modal(), Some(Modal::Confirm { .. })),
+            "{:?}",
+            app.modal()
+        );
+    }
+
+    #[test]
+    fn the_menu_shows_why_trash_is_unavailable() {
+        use crate::results::context_menu;
+        let mut app = app();
+        let (_, _, holder) = scanned(&mut app);
+        right_click(&mut app, holder);
+        let actions = context_menu::actions(results(&app), RowKey::Dir(holder), 0);
+        assert_eq!(
+            actions.first(),
+            Some(&Action::Trash(Err("This folder contains another volume.")))
+        );
+    }
+
+    #[test]
+    fn escape_scrolling_and_clicks_elsewhere_close_the_menu() {
+        let mut app = app();
+        let (big, cache, _) = scanned(&mut app);
+        right_click(&mut app, cache);
+        let _ = app.update(Message::Key(KeyAction::Escape));
+        assert!(app.context_menu().is_none());
+
+        right_click(&mut app, cache);
+        let _ = app.update(Message::CloseContextMenu);
+        assert!(app.context_menu().is_none());
+
+        right_click(&mut app, cache);
+        let _ = app.update(Message::RowPressed(RowKey::Dir(big)));
+        assert!(app.context_menu().is_none());
+
+        // A right-click outside any row while a menu is open only closes it.
+        right_click(&mut app, cache);
+        let _ = app.update(Message::ContextMenuAt(iced::Point::new(10.0, 10.0)));
+        assert!(app.context_menu().is_none());
+    }
+
+    #[test]
+    fn escape_closes_the_menu_without_stopping_the_scan() {
+        let mut app = app();
+        let builder = sample();
+        let id = app.start_simulated("/r");
+        let _ = app.update(Message::Scan(id, Update::Started(builder.root_info())));
+        let _ = app.update(Message::Scan(id, batch(builder.listings())));
+        let a = results(&app)
+            .tree
+            .find_path(std::path::Path::new("/r/a"))
+            .unwrap();
+        right_click(&mut app, a);
+        let _ = app.update(Message::Key(KeyAction::Escape));
+        assert!(app.context_menu().is_none());
+        assert_eq!(results(&app).phase, Phase::Scanning);
+    }
+
     #[test]
     fn nothing_moves_before_confirm_and_return_cancels_risky_items() {
         let mut app = app();

@@ -32,7 +32,7 @@ use crate::results::tree_view::Effect;
 use crate::results::{
     Pane, Results, ScanOutcome, StopOutcome, activity, columns, errors, nav, selection_bar,
 };
-use crate::results::{breakdown_view, treemap_view};
+use crate::results::{breakdown_view, context_menu, treemap_view};
 use crate::start::{self, StartState};
 use crate::{Cli, theme};
 
@@ -77,6 +77,7 @@ pub struct App {
     /// "Not Now" hides the Full Disk Access bar for the rest of the session.
     fda_dismissed: bool,
     modal: Option<Modal>,
+    context_menu: Option<context_menu::ContextMenu>,
     next_trash_job: u64,
     scan_ids: ScanIdGen,
     #[cfg(feature = "screenshot")]
@@ -113,6 +114,13 @@ pub enum Message {
     RowPressed(RowKey),
     /// Double-click: zoom into a folder, reveal a file, open the aggregate.
     RowActivated(RowKey),
+    /// Right-click on a row: select it and open the context menu (position follows).
+    RowContextMenu(RowKey),
+    /// Window position of a right-click in the tree pane.
+    ContextMenuAt(iced::Point),
+    /// A context-menu entry: close the menu, then handle the entry's message.
+    ContextMenuChose(Box<Message>),
+    CloseContextMenu,
     ZoomTo(NodeId),
     SmallFilesListed(scan_task::ScanId, NodeId, Result<Vec<SmallFile>, String>),
     ToggleExpand(RowKey),
@@ -211,6 +219,7 @@ impl App {
             toast: None,
             fda_dismissed: false,
             modal: None,
+            context_menu: None,
             next_trash_job: 0,
             scan_ids: ScanIdGen::default(),
             #[cfg(feature = "screenshot")]
@@ -245,6 +254,16 @@ impl App {
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        if self.context_menu.is_some() {
+            // Esc only closes the menu (it would stop the scan otherwise).
+            if matches!(message, Message::Key(KeyAction::Escape)) {
+                self.context_menu = None;
+                return Task::none();
+            }
+            if closes_context_menu(&message) {
+                self.context_menu = None;
+            }
+        }
         let task = self.handle(message);
         if let Screen::Results(results) = &mut self.screen {
             results.refresh_cleanup(self.env.home.as_deref(), unix_now());
@@ -327,6 +346,22 @@ impl App {
                     return self.apply(effect);
                 }
             }
+            Message::RowContextMenu(key) => {
+                if let Screen::Results(r) = &mut self.screen {
+                    r.view.select(key, Instant::now());
+                    r.focus = Pane::Tree;
+                    self.context_menu = Some(context_menu::ContextMenu { key, at: None });
+                }
+            }
+            Message::ContextMenuAt(at) => match &mut self.context_menu {
+                Some(menu) if menu.at.is_none() => menu.at = Some(at),
+                _ => self.context_menu = None,
+            },
+            Message::ContextMenuChose(message) => {
+                self.context_menu = None;
+                return self.update(*message);
+            }
+            Message::CloseContextMenu => self.context_menu = None,
             Message::RowActivated(key) => {
                 if let Screen::Results(r) = &mut self.screen {
                     let effect = r.activate(key, Instant::now());
@@ -565,6 +600,7 @@ impl App {
         }
         results.has_fda = self.env.fda == Some(true);
         self.screen = Screen::Results(Box::new(results));
+        self.context_menu = None;
         Task::batch([
             task,
             operation::scroll_to(
@@ -658,6 +694,7 @@ impl App {
 
     fn show_start(&mut self, banner: Option<String>) {
         self.screen = Screen::Start(start_state(&self.env, &self.prefs, banner));
+        self.context_menu = None;
     }
 
     fn key(&mut self, action: KeyAction) -> Task<Message> {
@@ -946,8 +983,15 @@ impl App {
             .modal
             .as_ref()
             .map(|m| trash::modal_view(m, self.env.home.as_deref()));
+        let menu = match (&self.screen, self.context_menu) {
+            (Screen::Results(r), Some(menu)) if self.modal.is_none() => {
+                context_menu::view(r, menu, self.window_size, unix_now())
+            }
+            _ => None,
+        };
         stack![base]
             .push(popover)
+            .push(menu)
             .push(overlay)
             .push(toast)
             .push(modal)
@@ -1443,6 +1487,23 @@ fn pointer_moved(
         .then_some(Message::PointerMoved)
 }
 
+/// Input that changes what the context menu points at, or means the user moved on.
+fn closes_context_menu(message: &Message) -> bool {
+    matches!(
+        message,
+        Message::Key(_)
+            | Message::TreeScrolled(_)
+            | Message::WindowResized(_)
+            | Message::RowPressed(_)
+            | Message::RowActivated(_)
+            | Message::ToggleExpand(_)
+            | Message::SortBy(_)
+            | Message::ZoomTo(_)
+            | Message::NewScan
+            | Message::ShowMapTab(_)
+    )
+}
+
 /// The tree's viewport: the window minus toolbar, path bar, space bar, rules and the column
 /// header.
 fn tree_height(window: Size) -> f32 {
@@ -1555,6 +1616,10 @@ impl App {
 
     pub fn modal(&self) -> Option<&Modal> {
         self.modal.as_ref()
+    }
+
+    pub fn context_menu(&self) -> Option<context_menu::ContextMenu> {
+        self.context_menu
     }
 
     pub fn fda_bar_visible(&self) -> bool {
